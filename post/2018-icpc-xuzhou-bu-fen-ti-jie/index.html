@@ -4,7 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>DWAE86的博客</title>
 <meta name="description" content="今天你刷题了吗" />
-<link rel="shortcut icon" href="https://DWAE86.github.io/favicon.ico?v=1587966644256">
+<link rel="shortcut icon" href="https://DWAE86.github.io/favicon.ico?v=1587981752132">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
 <link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
@@ -23,7 +23,7 @@
       <div class="flex lg:block p-4 lg:px-0 items-center fixed lg:static lg:block top-0 right-0 left-0 bg-white z-50">
         <i class="ri-menu-2-line lg:mt-4 text-2xl cursor-pointer animated fadeIn" onclick="openMenu()"></i>
         <a href="https://DWAE86.github.io">
-          <img class="animated fadeInLeft avatar rounded-lg mx-4 lg:mt-32 lg:mx-0 mt-0 lg:w-24 lg:h-24 w-12 w-12" src="https://DWAE86.github.io/images/avatar.png?v=1587966644256" alt="">
+          <img class="animated fadeInLeft avatar rounded-lg mx-4 lg:mt-32 lg:mx-0 mt-0 lg:w-24 lg:h-24 w-12 w-12" src="https://DWAE86.github.io/images/avatar.png?v=1587981752132" alt="">
         </a>
         <h1 class="animated fadeInLeft lg:text-4xl font-extrabold lg:mt-8 mt-0 text-xl" style="animation-delay: 0.2s">DWAE86的博客</h1>
       </div>
@@ -39,6 +39,7 @@
 <li><a href="#h-rikka-with-a-long-colour-palette%E8%B4%AA%E5%BF%83%E6%80%9D%E7%BB%B4">H. Rikka with A Long Colour Palette（贪心+思维）</a></li>
 <li><a href="#i-rikka-with-sorting-networks%E6%90%9C%E7%B4%A2">I. Rikka with Sorting Networks（搜索）</a></li>
 <li><a href="#k-rikka-with-ants%E5%8D%9A%E5%BC%88%E8%AE%BA-%E6%B7%B7%E5%90%88%E7%AD%96%E7%95%A5">K. Rikka with Ants（博弈论 混合策略）</a></li>
+<li><a href="#m-rikka-with-illuminations">M. Rikka with Illuminations</a></li>
 </ul>
 
           </div>
@@ -87,7 +88,7 @@
       <div class="content-wrapper py-32 lg:p-8 lg:w-3/4 post-detail animated fadeIn">
         <h1 class="text-3xl font-bold lg:mt-16">2018 ICPC Xuzhou 部分题解</h1>
         <div class="text-sm text-gray-700 lg:my-8">
-          2020-04-26 / 16 min read
+          2020-04-26 / 20 min read
         </div>
         
         <div class="post-content yue">
@@ -506,6 +507,144 @@ int main()
 	}
 	return 0;
 } 
+</code></pre>
+<h1 id="m-rikka-with-illuminations">M. Rikka with Illuminations</h1>
+<p><strong>题目大意</strong></p>
+<p>给你一个<span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>n</mi></mrow><annotation encoding="application/x-tex">n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathdefault">n</span></span></span></span>个点的凸包，在凸包外有<span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>m</mi></mrow><annotation encoding="application/x-tex">m</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.43056em;vertical-align:0em;"></span><span class="mord mathdefault">m</span></span></span></span>个光源，问把整个凸包表面照亮最少需要多少个光源。</p>
+<p><span class="katex"><span class="katex-mathml"><math><semantics><mrow><mn>3</mn><mo>≤</mo><mi>n</mi><mo>≤</mo><mn>1</mn><msup><mn>0</mn><mn>3</mn></msup></mrow><annotation encoding="application/x-tex">3 \leq n \leq 10^3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.78041em;vertical-align:-0.13597em;"></span><span class="mord">3</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span></span><span class="base"><span class="strut" style="height:0.7719400000000001em;vertical-align:-0.13597em;"></span><span class="mord mathdefault">n</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span></span><span class="base"><span class="strut" style="height:0.8141079999999999em;vertical-align:0em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141079999999999em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span></span></span></span></span></span></span></span><br>
+<span class="katex"><span class="katex-mathml"><math><semantics><mrow><mn>1</mn><mo>≤</mo><mi>m</mi><mo>≤</mo><mn>1</mn><msup><mn>0</mn><mn>3</mn></msup></mrow><annotation encoding="application/x-tex">1 \leq m \leq 10^3</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.78041em;vertical-align:-0.13597em;"></span><span class="mord">1</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span></span><span class="base"><span class="strut" style="height:0.7719400000000001em;vertical-align:-0.13597em;"></span><span class="mord mathdefault">m</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span></span><span class="base"><span class="strut" style="height:0.8141079999999999em;vertical-align:0em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141079999999999em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span></span></span></span></span></span></span></span><br>
+<span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi mathvariant="normal">∣</mi><mi>x</mi><mi mathvariant="normal">∣</mi><mo separator="true">,</mo><mi mathvariant="normal">∣</mi><mi>y</mi><mi mathvariant="normal">∣</mi><mo>≤</mo><mn>1</mn><msup><mn>0</mn><mn>9</mn></msup></mrow><annotation encoding="application/x-tex">|x|, |y| \leq 10^9</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">∣</span><span class="mord mathdefault">x</span><span class="mord">∣</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.16666666666666666em;"></span><span class="mord">∣</span><span class="mord mathdefault" style="margin-right:0.03588em;">y</span><span class="mord">∣</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2777777777777778em;"></span></span><span class="base"><span class="strut" style="height:0.8141079999999999em;vertical-align:0em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141079999999999em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">9</span></span></span></span></span></span></span></span></span></span></span></p>
+<p><strong>思路</strong></p>
+<p>预处理出m个点能覆盖到的范围，对每个m判断到下个能覆盖完的点是哪个，贪心求得答案即可。</p>
+<p><strong>代码</strong></p>
+<pre><code class="language-C++">const int maxn=1e3+10;
+int n;
+struct node
+{
+	ll x,y;
+};
+
+ll ok(node a,node b,node c,node d)
+{
+	return (b.x-a.x)*(d.y-c.y)-(b.y-a.y)*(d.x-c.x); 
+}
+
+ll dis(node x,node y)
+{
+	return (x.x-y.x)*(x.x-y.x)+(x.y-y.y)*(x.y-y.y);
+}
+
+node a[maxn],s[maxn],b[maxn];
+int top=0;
+bool cmp(node x,node y)
+{
+	ll k=ok(a[1],x,a[1],y);
+	if(k&gt;0) return 1;
+	if(k==0&amp;&amp;dis(a[1],x)&gt;dis(a[1],y)) return 1;
+	return 0; 
+}
+
+node aa;
+bool cmp2(node x,node y)
+{
+	ll k=ok(aa,x,aa,y);
+	if(k&gt;0) return 1;
+	return 0; 	
+}
+struct pu
+{
+	int x,y,id;
+}c[maxn];
+bool cmp3(pu x,pu y)
+{
+	if(x.x!=y.x)
+	return x.x&lt;y.x;
+	return x.y&lt;y.y;
+}
+vector&lt;int&gt; ans,v;
+void solve()
+{
+	int n,m;
+	scanf(&quot;%d%d&quot;,&amp;n,&amp;m);
+	int p=1;
+	top=0;
+	for(int i=1;i&lt;=n;i++) 
+	{
+		scanf(&quot;%lld%lld&quot;,&amp;a[i].x,&amp;a[i].y);
+		if(a[i].y&lt;a[p].y) p=i;
+	}
+	swap(a[1],a[p]);
+	sort(a+2,a+n+1,cmp);
+	s[++top]=a[1];
+	for(int i=2;i&lt;=n;i++)
+	{
+		while(top&gt;1&amp;&amp;ok(s[top],a[i],s[top],s[top-1])&lt;(-1e-6)) top--;
+		s[++top]=a[i];
+	}
+	for(int i=1;i&lt;=m;i++)
+	{
+		scanf(&quot;%lld%lld&quot;,&amp;aa.x,&amp;aa.y);
+		for(int j=1;j&lt;=top;j++) b[j]=s[j];
+		int l=1,r=1;
+		for(int j=1;j&lt;=top;j++) 
+		{
+			if(ok(aa,b[l],aa,b[j])&lt;0) l=j;
+			if(ok(aa,b[r],aa,b[j])&gt;0) r=j;
+		}
+		c[i].x=l-1;
+		if(c[i].x==0) c[i].x=top;
+		c[i].y=r;
+		swap(c[i].x,c[i].y);
+		if(c[i].x&gt;c[i].y) c[i].y+=top;
+		c[i].id=i;
+	}
+	sort(c+1,c+m+1,cmp3);
+	ans.clear();
+	p=m+1;
+	for(int i=1;i&lt;=m;i++)
+	{
+		int now=i;
+		int r=c[i].y;
+		int cnt=0;
+		v.clear();
+		v.pb(c[i].id);
+		while(now&lt;=m&amp;&amp;r&lt;c[i].x+top-1) 
+		{
+			int f=-1,pos=-1;
+			if(c[now].x&lt;=r+1) f=c[now].y,pos=now;
+			now++;
+			while(now&lt;=m&amp;&amp;c[now].x&lt;=r+1) 
+			{
+				if(c[now].y&gt;f)
+				f=max(f,c[now].y),pos=now;
+				now++;
+			}
+			if(f==-1) break;
+			r=f;
+			v.push_back(c[pos].id);
+		}
+		if(r&gt;=c[i].x+top-1&amp;&amp;v.size()&lt;p)
+		{
+			p=v.size();
+			ans=v;
+		}
+	}
+	if(p==m+1)
+	{
+		printf(&quot;-1\n&quot;);
+		return ;
+	}
+	printf(&quot;%d\n&quot;,p);
+	for(int i=0;i&lt;ans.size();i++) printf(&quot;%d%c&quot;,ans[i],i==ans.size()-1?'\n':' ');
+	return ;
+}
+int main()
+{
+	int T;
+	scanf(&quot;%d&quot;,&amp;T);
+	while(T--) solve();
+	return 0;
+}
 </code></pre>
 
         </div>
