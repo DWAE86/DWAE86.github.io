@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://DWAE86.github.io</id>
     <title>DWAE86的博客</title>
-    <updated>2021-03-12T11:11:15.674Z</updated>
+    <updated>2021-03-31T09:09:26.436Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://DWAE86.github.io"/>
     <link rel="self" href="https://DWAE86.github.io/atom.xml"/>
@@ -10,6 +10,37 @@
     <logo>https://DWAE86.github.io/images/avatar.png</logo>
     <icon>https://DWAE86.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, DWAE86的博客</rights>
+    <entry>
+        <title type="html"><![CDATA[mit6.s081 Lab01 Unix utilities 笔记]]></title>
+        <id>https://DWAE86.github.io/post/mit6s081-lab01-unix-utilities-bi-ji/</id>
+        <link href="https://DWAE86.github.io/post/mit6s081-lab01-unix-utilities-bi-ji/">
+        </link>
+        <updated>2021-03-31T08:56:48.000Z</updated>
+        <content type="html"><![CDATA[<p>突然想起来我之前搞出来的flag，感觉总得放点啥，不然说不过去了。就把最近正在玩的mit6.s081的lab放上来吧。虽然挺菜的，但反正没人看。</p>
+<p>lab 01 主要是写一些系统调用的应用程序，算是热身和熟悉。本课程的实验自带评测脚本，运行即可知道自己的程序是否通过。最终评分也只决定于是否通过评测，不需要写实验报告。</p>
+<p>你以为我不想读研？我只是读不到好的而已了。</p>
+<h3 id="sleep">sleep</h3>
+<p>实现一个根据参数 sleep 固定时间的程序。</p>
+<pre><code class="language-C">#include &quot;kernel/types.h&quot;
+#include &quot;kernel/stat.h&quot;
+#include &quot;user/user.h&quot;
+
+int
+main(int argc, char *argv[])
+{
+	if(argc != 2) {
+		fprintf(2, &quot;usage: sleep [number]\n&quot;);
+		exit(1);
+	}
+	int n;
+	n = atoi(argv[1]);
+	sleep(n);
+	
+	exit(0);
+}
+</code></pre>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[I'm back]]></title>
         <id>https://DWAE86.github.io/post/im-back/</id>
