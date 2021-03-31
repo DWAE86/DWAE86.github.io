@@ -4,7 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>DWAE86的博客</title>
 <meta name="description" content="今天你刷题了吗" />
-<link rel="shortcut icon" href="https://DWAE86.github.io/favicon.ico?v=1617182924618">
+<link rel="shortcut icon" href="https://DWAE86.github.io/favicon.ico?v=1617183161417">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
 <link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
@@ -23,7 +23,7 @@
       <div class="flex lg:block p-4 lg:px-0 items-center fixed lg:static lg:block top-0 right-0 left-0 bg-white z-50">
         <i class="ri-menu-2-line lg:mt-4 text-2xl cursor-pointer animated fadeIn" onclick="openMenu()"></i>
         <a href="https://DWAE86.github.io">
-          <img class="animated fadeInLeft avatar rounded-lg mx-4 lg:mt-32 lg:mx-0 mt-0 lg:w-24 lg:h-24 w-12 w-12" src="https://DWAE86.github.io/images/avatar.png?v=1617182924618" alt="">
+          <img class="animated fadeInLeft avatar rounded-lg mx-4 lg:mt-32 lg:mx-0 mt-0 lg:w-24 lg:h-24 w-12 w-12" src="https://DWAE86.github.io/images/avatar.png?v=1617183161417" alt="">
         </a>
         <h1 class="animated fadeInLeft lg:text-4xl font-extrabold lg:mt-8 mt-0 text-xl" style="animation-delay: 0.2s">DWAE86的博客</h1>
       </div>
@@ -156,7 +156,7 @@ int main()
 }
 </code></pre>
 <h2 id="primes">primes</h2>
-<p>有一定的难度了，主要是根据 https://swtch.com/~rsc/thread/ 中描述，通过<code>pipe</code>和<code>fork</code>实现埃氏筛。这里重点在于，只能在需要新子进程时<code>fork</code>，所以通过递归实现。</p>
+<p>有一定的难度了，主要是根据 <a href="https://swtch.com/~rsc/thread/">Bell Labs and CSP Threads</a> 中描述，通过<code>pipe</code>和<code>fork</code>实现埃氏筛。这里重点在于，只能在需要新子进程时<code>fork</code>，所以通过递归实现。</p>
 <pre><code class="language-C">#include &quot;kernel/types.h&quot;
 #include &quot;kernel/stat.h&quot;
 #include &quot;user/user.h&quot;
