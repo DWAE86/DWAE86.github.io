@@ -33,7 +33,15 @@
             文章目录
           </p>
           <div class="toc-container hidden lg:block">
-            
+            <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#system-call-tracing">System call tracing</a></li>
+<li><a href="#sysinfo">sysinfo</a></li>
+</ul>
+</li>
+</ul>
+
           </div>
         </div>
       
@@ -78,61 +86,170 @@
 <div class="mask" onclick="closeMenu()">
 </div>
       <div class="content-wrapper py-32 lg:p-8 lg:w-3/4 post-detail animated fadeIn">
-        <h1 class="text-3xl font-bold lg:mt-16">I&#39;m back</h1>
+        <h1 class="text-3xl font-bold lg:mt-16">mit6.s081 Lab 02 System calls 笔记</h1>
         <div class="text-sm text-gray-700 lg:my-8">
-          2021-03-12 / 3 min read
+          2021-04-01 / 4 min read
         </div>
         
         <div class="post-content yue">
-          <p>看了一下上次我写博客的时间，是2020-4-26。那时候我在luogu上，看见了一篇介绍简单博客搭建的日报，花一天的时间玩了一下。只是套用现成的东西，就如同我大学三年来做过的所有“项目”一样。那时候的我只是想用它来写题解，来提高自己的acm水平。显然这样的激情在十几篇题解过去后，就褪去了。</p>
-<p>有意思的是我的博客一直在收藏栏里的第一位，不知道自己心里究竟是怎么想的。</p>
-<p>我一看，4-26，那也不是很久啊。</p>
-<p>然后我才发现已经快过去一年了，我也已经大三下了。看来我对时间的感知力还是差了一些。</p>
-<p>所以现在是21年的3月12号，我正在准备着各种实习的面试，目前看来情况良好。</p>
-<p>可是在与周围人的交流中，我又开始重新质疑不读研的决定。坦白对自己讲，仿佛考虑周全的我，其实早就只剩一条路可以走了。就好像小学的暑假，我计划好如何在开学前把大本补完，其实最后也没有写一页。</p>
-<p>感谢zbc同学的指路，让我看了一些其他人的博客。讽刺的是其他人也是看的其他人的博客，来猜测自己的选择是否正确；而并不是已经踏入社会多年的人，回望自己多年的经历。所以我想我应该又只不过是来寻个安慰罢了。</p>
-<p>安慰满足了以后，我翻看这些人的博客，感觉他们在灵魂上，如同我不相识的双胞胎一样，只不过他们把这些写了下来。</p>
-<p>我在想，嘿，我曾经也写过博客啊，虽然只是题解而已。我也有想过记录下自己的人生，但我还是懒狗了。</p>
-<p>所以现在为什么不试一试呢，看看我能坚持一年，一个月，还是一天。</p>
-<p>PS：</p>
-<ol>
-<li>
-<p>我已经不怎么读书了，早已对自己写文字的水平失去了自信，其实我读书多的时候也不咋地，感觉我在这方面没有什么天赋。诚然拙劣的文字水平限制了我的表达，但我还是决定写下来，即使不怎么优美。毕竟是有和无的区别。谁知道呢，说不定写着写着我就开窍了。</p>
-</li>
-<li>
-<p>我发现，虽然我用双拼打字，但我还是打字慢的和shi一样。这一句话又很好地体现了上一段文字。</p>
-</li>
-<li>
-<p>应该搞一个发表以后不能修改的博客，可能会更加真实。显然开发起来也更省事。</p>
-</li>
-</ol>
+          <p>光速还愿，立刻写下Lab02。根据思考，之前不愿意坚持写题解和笔记就是写太繁了，这次只提关键。</p>
+<p>这次的任务是实现两个系统调用，看上去比较费劲，但读一读源码里系统调用的实现，理解一点以后还是比较好完成的，剩下的就是一些细节。这次任务对源代码的理解也有所帮助。</p>
+<h2 id="system-call-tracing">System call tracing</h2>
+<p>添加系统调用<code>trace()</code>，当所选择的系统调用被使用时，打印进程id，进程调用的系统调用名，以及系统调用返回值。参数为integer，每个bit为1（like mask）表示对应系统调用开启跟踪。</p>
+<p>首先添加声明。user/user.h中：</p>
+<pre><code class="language-C">int trace(int);
+</code></pre>
+<p>user/usys.pl中：</p>
+<pre><code class="language-perl">entry(&quot;trace&quot;);
+</code></pre>
+<p>kernel/syscall.h中：</p>
+<pre><code class="language-C">#define SYS_trace   22
+</code></pre>
+<p>接下来是实现<code>trace()</code>，通过在<code>proc</code>结构体中添加标记。根据观察，sys*.c文件用来实现系统调用。<br>
+在kernel/proc.h结构体中，定义标记：</p>
+<pre><code class="language-C">// Per-process state
+struct proc {
+  ……
+  int tracemask;               // mask record trace which syscall
+};
+</code></pre>
+<p>在kernel/sysproc.c中添加实现。当使用<code>trace()</code>是，修改标记。<code>argint()</code>是获取系统调用参数的方法：</p>
+<pre><code class="language-C">uint64
+sys_trace(void)
+{
+	int mask;
+	if(argint(0, &amp;mask) &lt; 0)
+		return -1;
+	myproc()-&gt;tracemask = mask;
+	return 0;
+}
+</code></pre>
+<p>在kernel/proc.c中，修改<code>fork()</code>，使子进程继承父进程的标记：</p>
+<pre><code class="language-C">int
+fork(void)
+{
+  ……
+  np-&gt;tracemask = p-&gt;tracemask;
+  ……
+  return pid;
+}
+</code></pre>
+<p>最后就是在kernel/syscall.c中，每当有进程使用系统调用，如果追踪，打印所需信息。<br>
+看来<code>a7</code>是系统调用号码而<code>a0</code>是系统调用返回值。<br>
+注意需添加系统调用名的字典：</p>
+<pre><code class="language-C">……
+[SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
+};
+
+const char *syscall_name[] = {
+	&quot;&quot;,
+	&quot;fork&quot;,
+	&quot;exit&quot;,
+	……
+	&quot;trace&quot;,
+};
+
+void
+syscall(void)
+{
+  int num;
+  struct proc *p = myproc();
+
+  num = p-&gt;trapframe-&gt;a7;
+  if(num &gt; 0 &amp;&amp; num &lt; NELEM(syscalls) &amp;&amp; syscalls[num]) {
+    p-&gt;trapframe-&gt;a0 = syscalls[num]();
+    
+	if((1&lt;&lt;num)&amp;(p-&gt;tracemask))
+	  printf(&quot;%d: syscall %s -&gt; %d\n&quot;, 
+			  p-&gt;pid, syscall_name[num], p-&gt;trapframe-&gt;a0);
+  } else {
+    printf(&quot;%d %s: unknown sys call %d\n&quot;,
+            p-&gt;pid, p-&gt;name, num);
+    p-&gt;trapframe-&gt;a0 = -1;
+  }
+}
+</code></pre>
+<h2 id="sysinfo">sysinfo</h2>
+<pre><code class="language-C">struct sysinfo {
+  uint64 freemem;   // amount of free memory (bytes)
+  uint64 nproc;     // number of process
+};
+</code></pre>
+<p>基于以上结构体实现系统调用<code>sysinfo()</code>，传入<code>sysinfo</code>结构体指针，将对应信息写入。<code>freemem</code>为空闲主存字节数，<code>nproc</code>为状态为<code>UNUSED</code>的进程数。</p>
+<p>首先如任务1添加对应声明，在user/user.h中先声明结构体如hints所示。注意应为任务1的<code>trace()</code>添加对应信息。</p>
+<p>在kernel/kalloc.c中，添加统计free memory的函数。加互斥锁，根据<code>freelist</code>节点数乘以每页大小得出结果：</p>
+<pre><code class="language-C">uint64
+cal_freemem(void)
+{
+	struct run *r;
+	uint64 res = 0;
+	acquire(&amp;kmem.lock);
+	r = kmem.freelist;
+	while(r)
+	{
+		res++;
+		r = r-&gt;next;
+	}
+	release(&amp;kmem.lock);
+	return res * PGSIZE;
+}
+</code></pre>
+<p>在kernel/proc.c中，添加统计<code>UNUSED</code>进程的函数。<code>proc</code>为所有进程的数组，I guess：</p>
+<pre><code class="language-C">uint64
+cal_nproc(void)
+{
+	struct proc *p;
+	uint64 res = 0;
+	for(p = proc; p &lt; &amp;proc[NPROC]; p++)
+	{
+		if(p-&gt;state != UNUSED)
+			res++;
+	}
+	return res;
+}
+</code></pre>
+<p>在kernel/defs.h中，添加这两个函数的定义：</p>
+<pre><code class="language-C">uint64          cal_freemem(void);
+……
+uint64          cal_nproc(void);
+</code></pre>
+<p>最后在kernel/sysproc.c中添加实现。<br>
+<code>argaddr()</code>将系统调用参数作为指针（即地址）获取。<br>
+<code>copyout()</code>使用，我这里是照猫画虎，注意添加错误判断：</p>
+<pre><code class="language-C">uint64
+sys_sysinfo(void)
+{
+	struct sysinfo info;
+	info.freemem = cal_freemem();
+	info.nproc = cal_nproc();
+
+	uint64 addr;
+	if(argaddr(0, &amp;addr) &lt; 0)
+		return -1;
+	
+	struct proc *p = myproc();
+	if(copyout(p-&gt;pagetable, addr, (char *)&amp;info, sizeof(info)) &lt; 0)
+		return -1;
+	
+	return 0;
+}
+</code></pre>
+<p>这次笔记记录，感觉对实验过程流程理解加深，的确有益。如果是想要认真学习的东西，写一写的确有帮助。</p>
 
         </div>
 
-        
-          <a class="animated fadeInUp p-2 items-center text-sm text-gray-700 border hover:bg-gray-300 leading-none rounded-full flex lg:inline-flex m-4 " href="https://DWAE86.github.io/tag/imohJk1nn/">
-            <span class="flex-auto">随笔</span>
-          </a>
         
 
 
         <div class="flex justify-between py-8">
           
-            <div class="prev-post">
-              <a href="https://DWAE86.github.io/post/mit6s081-lab01-unix-utilities-bi-ji/">
-                <h3 class="post-title">
-                  <i class="ri-arrow-left-line"></i>
-                  mit6.s081 Lab01 Unix utilities 笔记
-                </h3>
-              </a>
-            </div>
-          
 
           
             <div class="next-post">
-              <a href="https://DWAE86.github.io/post/2018-icpc-xuzhou-bu-fen-ti-jie/">
+              <a href="https://DWAE86.github.io/post/mit6s081-lab01-unix-utilities-bi-ji/">
                 <h3 class="post-title">
-                  2018 ICPC Xuzhou 部分题解
+                  mit6.s081 Lab01 Unix utilities 笔记
                   <i class="ri-arrow-right-line"></i>
                 </h3>
               </a>
