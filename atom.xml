@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://DWAE86.github.io</id>
-    <title>DWAE86的博客</title>
-    <updated>2021-05-06T06:23:24.591Z</updated>
+    <title>CSZ Dairy</title>
+    <updated>2021-05-06T06:24:13.792Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://DWAE86.github.io"/>
     <link rel="self" href="https://DWAE86.github.io/atom.xml"/>
-    <subtitle>今天你刷题了吗</subtitle>
+    <subtitle>fighting in depress</subtitle>
     <logo>https://DWAE86.github.io/images/avatar.png</logo>
     <icon>https://DWAE86.github.io/favicon.ico</icon>
-    <rights>All rights reserved 2021, DWAE86的博客</rights>
+    <rights>All rights reserved 2021, CSZ Dairy</rights>
     <entry>
         <title type="html"><![CDATA[2021 EC-Final（西安）游记 + 阶段总结]]></title>
         <id>https://DWAE86.github.io/post/2021-ec-finalxi-an-you-ji/</id>
