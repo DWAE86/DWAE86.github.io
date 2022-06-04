@@ -1,0 +1,1060 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <id>https://DWAE86.github.io</id>
+    <title>CSZ Dairy</title>
+    <updated>2022-06-04T04:08:32.571Z</updated>
+    <generator>https://github.com/jpmonette/feed</generator>
+    <link rel="alternate" href="https://DWAE86.github.io"/>
+    <link rel="self" href="https://DWAE86.github.io/atom.xml"/>
+    <subtitle>fighting</subtitle>
+    <logo>https://DWAE86.github.io/images/avatar.png</logo>
+    <icon>https://DWAE86.github.io/favicon.ico</icon>
+    <rights>All rights reserved 2022, CSZ Dairy</rights>
+    <entry>
+        <title type="html"><![CDATA[mit6.s081 Lab05 Lazy allocation 笔记]]></title>
+        <id>https://DWAE86.github.io/post/mit6s081-lab05-lazy-allocation-bi-ji/</id>
+        <link href="https://DWAE86.github.io/post/mit6s081-lab05-lazy-allocation-bi-ji/">
+        </link>
+        <updated>2022-06-04T04:04:22.000Z</updated>
+        <content type="html"><![CDATA[<p>Long time no see。尴尬。尽管我已经完全不记得页表是怎么玩的了，但这次的实验比较简单，硬做。</p>
+<h2 id="eliminate-allocation-from-sbrk">Eliminate allocation from sbrk()</h2>
+<p><code>sbrk()</code> 是申请内存的系统调用。之前是在 <code>sbrk()</code> 中立刻直接分配内存并与页表建立对应。Lazy allocation 先不分配内存，等用到某一 va 时，对 va 所在页分配内存。这样做使内核只对进程实际使用的申请内存分配，节约资源，情况合适节约时间。</p>
+<p>这一任务是删除 sbrk() 中的立刻分配内存。</p>
+<p>在 kernel/sysproc.c 的 <code>sys_srbk()</code> 系统调用定义中，只修改 <code>p-&gt;sz</code>，不分配内存。注意输入为负，和申请超过内存限制的情况。</p>
+<pre><code class="language-c">uint64
+sys_sbrk(void)
+{
+  int addr;
+  int n;
+
+  if(argint(0, &amp;n) &lt; 0)
+    return -1;
+  addr = myproc()-&gt;sz;
+  if (n &lt; 0) {
+    if(growproc(n) &lt; 0)
+      return -1;
+  }
+  else {
+    if (addr + n &gt;= MAXVA) {
+      return -1;
+    }
+    myproc()-&gt;sz += n;
+  }
+  return addr;
+}
+</code></pre>
+<h2 id="lazy-allocation-lazytests-and-usertests">Lazy allocation &amp;&amp; Lazytests and Usertests</h2>
+<p>由于未分配实际内存，在往 va 中读写数据（或执行其中指令）时会出现 page fault。应在处理 page fault 的 trap 中，分析是不是符合这种情况，符合的话分配具体内存后重新执行。</p>
+<p>在 kernel/trap.c 的 <code>usertrap()</code> 中，通过 <code>r_scause()</code> 得知是否为 page fault，判罚 va 是否合法，如果是则分配内存。注意错误处理。</p>
+<figure data-type="image" tabindex="1"><img src="https://DWAE86.github.io/post-images/1654315524915.jpg" alt="" loading="lazy"></figure>
+<p>根据这张经典图，合法 va 应不低于 stack。<code>sp</code> 为 stack 栈顶指针。由于 stack 为一个 PAGESIZE，通过 <code>PGROUNDDOWN(sp)</code> 可以找到下边界。而上边界为 <code>p-&gt;sz</code>。内存分配可参考 kernel/vm.c 中 <code>uvmalloc()</code>。</p>
+<pre><code class="language-c">void
+usertrap(void)
+{
+	……
+  if(r_scause() == 8){
+    ……
+  } else if (r_scause() == 13 || r_scause() == 15) {
+    uint64 va = r_stval();
+    uint64 sp = p-&gt;trapframe-&gt;sp;
+    char *mem;
+    if (va &gt;= p-&gt;sz) {
+      goto killprocess;
+    }
+    else {
+      va = PGROUNDDOWN(va);
+      sp = PGROUNDDOWN(sp);
+      if (va &lt; sp)
+        goto killprocess;
+      if ((mem = kalloc()) == 0)
+        goto killprocess;
+      memset(mem, 0, PGSIZE);
+      if (mappages(p-&gt;pagetable, va, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0) {
+        kfree(mem);
+        goto killprocess;
+      }
+    }
+  } else {
+    killprocess:
+    printf(&quot;usertrap(): unexpected scause %p pid=%d\n&quot;, r_scause(), p-&gt;pid);
+    printf(&quot;            sepc=%p stval=%p\n&quot;, r_sepc(), r_stval());
+    p-&gt;killed = 1;
+  }
+}
+</code></pre>
+<p>在 kernel/vm.c 的 <code>uvmunmap()</code> 中，在释放页表对应的内存时，从未分配的内存必然无法释放，导致出错。简单地忽略这一检查。</p>
+<pre><code class="language-c">void
+uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
+{
+  ……
+  for(a = va; a &lt; va + npages*PGSIZE; a += PGSIZE){
+    if((pte = walk(pagetable, a, 0)) == 0)
+      /* panic(&quot;uvmunmap: walk&quot;); */
+      continue;
+    if((*pte &amp; PTE_V) == 0)
+      /* panic(&quot;uvmunmap: not mapped&quot;); */
+      continue;
+    ……
+  }
+}
+</code></pre>
+<p>在 kernel/vm.c 的 <code>uvmcopy()</code> 中，在 fork 时，父进程未分配的页执行 <code>walk()</code> 时也会出错，直接忽略。</p>
+<pre><code class="language-c">int
+uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+{
+  ……
+  for(i = 0; i &lt; sz; i += PGSIZE){
+    if((pte = walk(old, i, 0)) == 0)
+      /* panic(&quot;uvmcopy: pte should exist&quot;); */
+      continue;
+    if((*pte &amp; PTE_V) == 0)
+      /* panic(&quot;uvmcopy: page not present&quot;); */
+      continue;
+    ……
+    }
+  }
+  ……
+}
+</code></pre>
+<p>在 kernel/vm.c 的 <code>walkaddr()</code> 中，在执行一些系统调用时，未分配的 va 不走 trap 这条路，而是直接通过 <code>walkaddr()</code> 获取物理地址。合法 va 分配内存。其实更好的做法是为分配内存单独写一个函数，这里省事。</p>
+<pre><code class="language-c">uint64
+walkaddr(pagetable_t pagetable, uint64 va)
+{
+	……
+  if(va &gt;= MAXVA)
+    return 0;
+
+  pte = walk(pagetable, va, 0);
+  if(pte == 0 || (*pte &amp; PTE_V) == 0) {
+    if (va &gt;= myproc()-&gt;sz)
+      return 0;
+    char *mem;
+    va = PGROUNDDOWN(va);
+    if (va &lt; PGROUNDDOWN(myproc()-&gt;trapframe-&gt;sp))
+      return 0;
+    if ((mem = kalloc()) == 0)
+      return 0;
+    memset(mem, 0, PGSIZE);
+    if (mappages(pagetable, va, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0) {
+      kfree(mem);
+      return 0;
+    }
+    pte = walk(pagetable, va, 0);
+  }
+
+  if((*pte &amp; PTE_V) == 0)
+    return 0;
+  if((*pte &amp; PTE_U) == 0)
+    return 0;
+  pa = PTE2PA(*pte);
+  return pa;
+}
+</code></pre>
+<p>这一次的实验简单，很适合恢复。无需多言，加油。</p>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[mit6.s081 Lab04 Traps 笔记]]></title>
+        <id>https://DWAE86.github.io/post/mit6s081-lab04-traps-bi-ji/</id>
+        <link href="https://DWAE86.github.io/post/mit6s081-lab04-traps-bi-ji/">
+        </link>
+        <updated>2021-10-06T03:57:12.000Z</updated>
+        <content type="html"><![CDATA[<p>这一部分，重要理解 系统调用（ecall）/ interrupt / exception 发生时，uservec -&gt; usertrap -&gt; 处理 -&gt; usertrapret -&gt; userret 的过程，以及其中 reg 等环境的保存。具体可看视频。</p>
+<h2 id="risc-v-assembly">RISC-V assembly</h2>
+<p>这一部分是对汇编有一个最简单的了解，方便之后debug。比较有意思的一点是在 <code>printf(&quot;x=%d y=%d&quot;, 3);</code> 中，y=的输出值其实是a2寄存器的之前值，是无意义的。</p>
+<h2 id="backtrace">Backtrace</h2>
+<p>实现一个 kernel 中使用的函数，打印函数栈。利用函数的 stack frame 中存储的返回地址，和存储的上一函数的 stack frame 的地址，递归实现。所有的 stack frame 在同一页表中，所以我们根据 stack frame 地址的 PGROUNDDOWN 是否相等来判断两个 stack frame 是否在同一页表中，以此决定递归边界。</p>
+<p>在 kernel/riscv.h 中，添加可以读出当前 stack frame 地址的函数 <code>r_fp()</code>。</p>
+<pre><code class="language-C">// get s0
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile(&quot;mv %0, s0&quot; : &quot;=r&quot; (x) );
+  return x;
+}
+</code></pre>
+<p>在 kernel/printf.c 中，实现 <code>backtrace()</code> 函数。[-1] 位置是函数要返回的地址，[-2] 位置是上一 stack frame 的地址。</p>
+<pre><code class="language-C">void
+backtrace()
+{
+  uint64* current = (uint64*) r_fp();
+  while (1) {
+    printf(&quot;%p\n&quot;, current[-1]);
+    if (PGROUNDDOWN((uint64) current) != PGROUNDDOWN(current[-2])) {
+      break;
+    }
+    current = (uint64*) current[-2];
+  }
+}
+</code></pre>
+<p>在 kernel/defs.h 中，添加函数声明。</p>
+<pre><code class="language-C">// printf.c
+...
+void            backtrace();
+</code></pre>
+<p>在 kernel/sysproc.c 中，调用函数使被测试。</p>
+<pre><code class="language-C">uint64
+sys_sleep(void)
+{
+  backtrace();
+  ...
+}
+</code></pre>
+<h2 id="alarm">Alarm</h2>
+<p>实现一对系统调用，使进程在一定的 CPU 时间间隔后，调用指定的函数，并重复这一过程。系统调用输入的时间间隔为 0 时，使该过程结束。考察对学习内容的理解。</p>
+<h3 id="test0">test0</h3>
+<p>先实现第一步，让进程在指定的 CPU 时间间隔后调用指定函数。在对应的 timer 中断发生时，使返回地址 sepc 变为要调用的函数的地址即可。</p>
+<p>在 Makefile 中，编译测试用的 user/alarmtest.c。</p>
+<pre><code class="language-Makefile">ifeq ($(LAB),traps)
+UPROGS += \
+        ...
+        $U/_alarmtest
+endif
+</code></pre>
+<p>在 user/user.h 中，添加对系统调用 <code>sigalarm()</code> 和 <code>sigreturn()</code>的声明。</p>
+<pre><code class="language-c">// system calls
+...
+int sigalarm(int ticks, void (*handler)());
+int sigreturn(void);
+</code></pre>
+<p>在 user/usys.pl 中，添加系统调用。</p>
+<pre><code class="language-perl">...
+entry(&quot;sigalarm&quot;);
+entry(&quot;sigreturn&quot;);
+</code></pre>
+<p>类似 lab02，在 kernel/syscall.c 中，添加对系统调用的声明。</p>
+<pre><code class="language-c">extern uint64 sys_sigalarm(void);
+extern uint64 sys_sigreturn(void);
+
+static uint64 (*syscalls[])(void) = {
+...
+[SYS_sigalarm]  sys_sigalarm,
+[SYS_sigreturn] sys_sigreturn,
+};
+</code></pre>
+<p>同样在 kernel/syscall.h 中修改。</p>
+<pre><code class="language-c">#define SYS_sigalarm  22
+#define SYS_sigreturn 23
+</code></pre>
+<p>在 kernel/proc.h 中，添加三个成员，记录 CPU时间间隔，调用函数地址，以及距离调用函数的剩余 CPU 时间。</p>
+<pre><code class="language-c">struct proc {
+  ...
+  int interval;                // alarm interval
+  void (*handler)();           // alarm handler function
+  int ticks;                   // left ticks to call handler function
+};
+</code></pre>
+<p>在 kernel/proc.c 中，在函数 <code>allocproc()</code> 中，添加对成员的初始化。</p>
+<pre><code class="language-c">static struct proc*
+allocproc(void)
+{
+  ...
+  p-&gt;interval = 0;
+  p-&gt;handler = 0;
+  p-&gt;ticks = 0;
+
+  return p;
+}
+</code></pre>
+<p>在 kernel/sysproc.c 中，实现函数 <code>sigalarm()</code>，将输入赋值给成员。函数 <code>sigreturn()</code> 暂时为直接返回 0。</p>
+<pre><code class="language-c">uint64
+sys_sigalarm(void)
+{
+  struct proc* p = myproc();
+
+  int n;
+  uint64 fn;
+  if (argint(0, &amp;n) &lt; 0)
+    return -1;
+  if (argaddr(1, &amp;fn) &lt; 0)
+    return -1;
+
+  p-&gt;interval = n;
+  p-&gt;ticks = n;
+  p-&gt;handler = (void (*)())fn;
+
+  return 0;
+}
+</code></pre>
+<p>在 kernel/trap.c 的 <code>usertrap()</code> 函数中，处理 timer 中断。</p>
+<pre><code class="language-c">void
+usertrap(void)
+{
+  ...
+  if(r_scause() == 8){
+      ...
+  } else if((which_dev = devintr()) != 0) {
+    if (which_dev == 2 &amp;&amp; p-&gt;interval != 0) {
+      p-&gt;ticks -= 1;
+      if (p-&gt;ticks == 0) {
+        p-&gt;trapframe-&gt;epc = (uint64)p-&gt;handler;
+      }
+    }
+  } else ...
+  ...
+}
+</code></pre>
+<h3 id="test1test2">test1/test2</h3>
+<p>在上一步的基础上，实现调用函数结束后返回被中断的位置。做法是在中断时记录 trapframe 记录的 reg 环境，而在调用函数结束时调用 <code>sigreturn()</code> 重新加载这些 reg 环境。</p>
+<p>在 kernel/proc.h 中，添加两个成员，记录 reg 环境和是否在调用函数的过程中，因为调用函数过程中我们是不将 CPU 时间作为时间间隔内的，此时的 timer 中断便忽略。</p>
+<pre><code class="language-c">struct proc {
+  ...
+  int interval;                // alarm interval
+  void (*handler)();           // alarm handler function
+  int ticks;                   // left ticks to call handler function
+  struct trapframe trapframeBackup;
+  int inHandler;
+};
+</code></pre>
+<p>在 kernel/proc.c 中，初始化成员变量。</p>
+<pre><code class="language-c">static struct proc*
+allocproc(void)
+{
+  ...
+  p-&gt;interval = 0;
+  p-&gt;handler = 0;
+  p-&gt;ticks = 0;
+  p-&gt;inHandler = 0;
+}
+</code></pre>
+<p>在 kernel/trap.c 中，调用函数前保存 reg 环境，并标记当前在调用函数中。</p>
+<pre><code class="language-c">void
+usertrap(void)
+{
+  ...
+  if(r_scause() == 8){
+      ...
+  } else if((which_dev = devintr()) != 0) {
+    if (which_dev == 2 &amp;&amp; p-&gt;interval != 0 &amp;&amp; p-&gt;inHandler == 0) {
+      p-&gt;ticks -= 1;
+     if (p-&gt;ticks == 0) {
+        p-&gt;trapframeBackup = *p-&gt;trapframe;
+        p-&gt;trapframe-&gt;epc = (uint64)p-&gt;handler;
+        p-&gt;inHandler = 1;
+      }
+    }
+  } else ...
+  ...
+}
+</code></pre>
+<p>在 kernel/sysproc.c 中，系统调用 <code>sigreturn()</code> 中，恢复 reg 环境，将标记取消，并重新设置剩余 CPU 时间。</p>
+<pre><code class="language-c">uint64
+sys_sigreturn(void)
+{
+  struct proc* p = myproc();
+  *p-&gt;trapframe = p-&gt;trapframeBackup;
+  p-&gt;inHandler = 0;
+  p-&gt;ticks = p-&gt;interval;
+  return 0;
+}
+</code></pre>
+<p>本次实验代码并不复杂，关键是对机制的理解。最后一个任务中，我感觉不是所有的 reg 都需要保存，应按 caller/callee 区分，但保险起见还是全部存储，之后会尝试搞懂这一问题。</p>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[mit6.s081 Lab03 Page Tables 笔记]]></title>
+        <id>https://DWAE86.github.io/post/mit6s081-lab-03-page-tables-bi-ji/</id>
+        <link href="https://DWAE86.github.io/post/mit6s081-lab-03-page-tables-bi-ji/">
+        </link>
+        <updated>2021-09-16T15:40:36.000Z</updated>
+        <content type="html"><![CDATA[<p>Long time no see。lab03是在实习期间完成的，进行一下总结。</p>
+<h2 id="print-a-page-table">Print a page table</h2>
+<p>一个简单的任务，实现一个打印页表的函数 <code>vmprint()</code>。首先要理解页表的结构，放一张图。</p>
+<figure data-type="image" tabindex="1"><img src="https://DWAE86.github.io/post-images/1632902420085.png" alt="" loading="lazy"></figure>
+<p>在 kernel/vm.c 中，实现递归函数。使用 kernel/riscv.h 中的宏定义。一次函数过程输出一行，根据深度输出前缀。输入 <code>pagetable</code> 本质是物理地址，也就是 satp。<code>pte</code> 是字节内容。注意如果 <code>pte</code> 对应页表则递归输出。<code>%p</code> 可以以hex输出字节内容。</p>
+<pre><code class="language-C">void
+vmprint(pagetable_t pagetable, int depth)
+{
+  if (depth == 1) {
+    printf(&quot;page table %p\n&quot;, pagetable);
+  }
+  for (int i = 0; i &lt; 512; i++) {
+    pte_t pte = pagetable[i];
+    if (!(pte &amp; PTE_V)) {
+      continue;
+    }
+    for (int j = 0; j &lt; depth; j++) {
+      if (j != 0) {
+        printf(&quot; &quot;);
+      }
+      printf(&quot;..&quot;);
+    }
+    printf(&quot;%d: pte %p pa %p\n&quot;, i, pte, PTE2PA(pte));
+    if ((pte &amp; (PTE_R | PTE_W | PTE_X)) == 0) {
+        uint64 child = PTE2PA(pte);
+        vmprint((pagetable_t)child, depth+1);
+    }
+  }
+}
+</code></pre>
+<p>将函数声明添加到 kernel/defs.h 中。</p>
+<pre><code class="language-C">// vm.c
+...
+void            vmprint(pagetable_t, int);
+</code></pre>
+<p>在 kernel/exec.c 中，添加对函数的调用。</p>
+<pre><code class="language-C">int
+exec(char *path, char **argv)
+{
+  ...
+  if (p-&gt;pid == 1) {
+    vmprint(p-&gt;pagetable, 1);
+  }
+  ...
+}
+</code></pre>
+<h2 id="a-kernel-page-table-per-process">A kernel page table per process</h2>
+<p>本任务之前，xv6 只有一个 kernel table，是直接将虚拟地址映射到同一物理地址。在 kernel 中使用 user memory 虚拟地址，需先转换为物理地址，即唯一 kernel table 的虚拟地址。</p>
+<p>这一部分任务是给每个进程一份 kernel table 的 copy，这样在kernel里无需转换。我的理解是，初始 <code>kernel_pagetable</code> 包含了所有进程的 kernel stack 的映射，而每个进程的 kernel table 的 copy 只包含了自己的 kernel stack 的映射，其余没有区别。</p>
+<p>在 kernel/proc.h 的 <code>struct proc</code> 中，添加成员。</p>
+<pre><code class="language-C">struct proc {
+    ...
+  pagetable_t kpagetable;
+};
+</code></pre>
+<p>在 kernel/vm.c 中，仿照 <code>kvminit()</code>，编写函数 <code>makekpt()</code> ，为新进程制造一个 kernel table 的 copy。每个进程的 kernel stack 在 <code>kernel_pagetable</code> 的虚拟地址，为输入参数，找到对应的物理地址，映射到制造的 kernel table 的 copy 中。</p>
+<pre><code class="language-C">pagetable_t
+makekpt(uint64 va)
+{
+  pagetable_t pagetable = uvmcreate();
+  if (pagetable == 0) {
+    return 0;
+  }
+
+  uvmmap(pagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(pagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(pagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  uvmmap(pagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  uvmmap(pagetable, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  uvmmap(pagetable, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  uvmmap(pagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  pte_t *pte = walk(kernel_pagetable, va, 0);
+  if (pte == 0) {
+    panic(&quot;makekpt: walk&quot;);
+  }
+  uint64 pa = PTE2PA(*pte);
+  uvmmap(pagetable, va, pa, PGSIZE, PTE_R | PTE_W);
+
+  /*int count = 0;
+  for (uint64 i = 0; i &lt; 128*1024*1024; i += PAGESIZE) {
+    if (walk(pagetable, i, 0) != walk(kernel_pagetable, i, 0)) {
+      count++;
+    }
+  }
+  printf(&quot;*** count = %d ***\n&quot;);*/
+
+  return pagetable;
+}
+
+void
+uvmmap(pagetable_t pt, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if(mappages(pt, va, sz, pa, perm) != 0)
+    panic(&quot;uvmmap&quot;);
+}
+</code></pre>
+<p>在 kernel/vm.c 中，实现改变 satp 的函数 <code>kvmmodifyhart()</code>。</p>
+<pre><code class="language-C">void
+kvmmodifyhart(pagetable_t pagetable)
+{
+  w_satp(MAKE_SATP(pagetable));
+  sfence_vma();
+}
+</code></pre>
+<p>在 kernel/vm.c 中，参考 <code>freewalk()</code>，实现释放页表的函数 <code>freewalknoleaf()</code>，此函数的特点是只释放页表，而不释放对应的物理地址，否则其他 kernel table 的 copy 失效。你不能清空 kernel空间吧。</p>
+<pre><code class="language-C">void
+freewalknoleaf(pagetable_t pagetable)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i &lt; 512; i++){
+    pte_t pte = pagetable[i];
+    if((pte &amp; PTE_V) &amp;&amp; (pte &amp; (PTE_R|PTE_W|PTE_X)) == 0){
+      // this PTE points to a lower-level page table.
+      uint64 child = PTE2PA(pte);
+      freewalknoleaf((pagetable_t)child);
+    }
+    pagetable[i] = 0;
+  }
+  kfree((void*)pagetable);
+}
+</code></pre>
+<p>在 kernel/defs.h 中，添加对以上函数的声明。</p>
+<pre><code class="language-C">// vm.c
+...
+pagetable_t     makekpt(uint64);
+void            uvmmap(pagetable_t, uint64, uint64, uint64, int);
+void            kvmmodifyhart(pagetable_t);
+void            freewalknoleaf(pagetable_t);
+</code></pre>
+<p>在 kernel/proc.c 中的 <code>allocproc()</code> 函数中，添加对 <code>makekpt()</code> 的调用。</p>
+<pre><code class="language-C">static struct proc*
+allocproc(void)
+{
+  ...
+  p-&gt;kpagetable = makekpt(p-&gt;kstack);
+  if (p-&gt;kpagetable == 0) {
+    freeproc(p);
+    release(&amp;p-&gt;lock);
+    return 0;
+  }
+
+  return p;
+}
+</code></pre>
+<p>在 kernel/proc.c 中的 <code>scheduler()</code> 函数中，执行对 satp 的修改。</p>
+<pre><code class="language-C">void
+scheduler(void)
+{
+  ...
+        c-&gt;proc = p;
+        kvmmodifyhart(p-&gt;kpagetable);
+  ...
+        c-&gt;proc = 0;
+        kvminithart(); // use kernel_pagetable
+  ...
+}
+</code></pre>
+<p>在 kernel/proc.c 中的 <code>freeproc()</code> 函数中，对页表进行释放。</p>
+<pre><code class="language-C">static void
+freeproc(struct proc *p)
+{
+  ...
+  if (p-&gt;kpagetable) {
+    freewalknoleaf(p-&gt;kpagetable);
+  }
+  p-&gt;kpagetable = 0;
+}
+</code></pre>
+<h2 id="simplify-copyincopyinstr">Simplify copyin/copyinstr</h2>
+<p>本任务之前，在 kernel 内使用用户虚拟地址时，会先找到此虚拟地址对应的物理地址，并视作 kernel table 的虚拟地址，进而使用。</p>
+<p>我们的任务是利用 kernel table 从 0 到 0x0C000000 的未映射虚拟地址空间，让用户虚拟地址一一对应自己 copy 的 kernel table 的虚拟地址。例如用户虚拟地址 x 映射物理地址 y，我们要让kernel table 虚拟地址 x 也映射物理地址 y。这样 kernel 内使用用户虚拟地址时，直接将其视作 kernel table 的虚拟地址即可，无需顺表查找一次。自然，用户可使用的虚拟地址空间也被限制为 0 到 0x0C000000。</p>
+<p>kernel 内的使用，用 <code>copyin()</code> 和 <code>copyinstr()</code> 测试。在 kernel/vm.c 将其替换为新版本，新版本内直接将用户虚拟地址作为 kernel table 虚拟地址。</p>
+<pre><code class="language-C">int
+copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
+{
+  return copyin_new(pagetable, dst, srcva, len);
+}
+
+int
+copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
+{
+  return copyinstr_new(pagetable, dst, srcva, max);
+}
+</code></pre>
+<p>在 kernel/vm.c 中，实现函数 <code>uvm2ukvm()</code>，实现将 kernel table 映射到用户虚拟地址对应的物理地址。找到用户虚拟地址对应的 pte，关闭 PTE_U，赋值给 kernel table 对应的 pte。注意 PLIC 即 0x0C000000 限制。</p>
+<p>这里利用 <code>uvmunmap()</code> 多实现了一个释放功能，不是必须，但又是必须。这里只释放页表，物理空间在用户虚拟地址空间释放时已经被释放。</p>
+<pre><code class="language-C">uint64
+uvm2ukvm(pagetable_t pagetable, pagetable_t kpagetable, uint64 old\
+sz, uint64 newsz)
+{
+  //printf(&quot;*** uvm2ukvm %p %p ***\n&quot;, oldsz, newsz);
+  if (PGROUNDUP(oldsz) &gt;= PLIC || PGROUNDUP(newsz) &gt;= PLIC) {
+    panic(&quot;uvm2ukvm: PLIC&quot;);
+  }
+  if (newsz &gt; oldsz) {
+    oldsz = PGROUNDUP(oldsz);
+    for(uint64 a = oldsz; a &lt; newsz; a += PGSIZE) {
+      pte_t *pte = walk(pagetable, a, 0);
+      if (pte == 0) {
+        panic(&quot;uvm2ukvm walk&quot;);
+      }
+      pte_t *kpte = walk(kpagetable, a, 1);
+      if (kpte == 0) {
+        panic(&quot;uvm2ukvm walk&quot;);
+      }
+      *kpte = (*pte &amp; (~PTE_U));
+    }
+  } else if (newsz &lt; oldsz) {
+    if(PGROUNDUP(newsz) &lt; PGROUNDUP(oldsz)) {
+      int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;    
+      uvmunmap(kpagetable, PGROUNDUP(newsz), npages, 0);
+    }
+  }
+
+  return newsz;
+}
+</code></pre>
+<p>在 kernel/defs.h 中，添加函数声明。</p>
+<pre><code class="language-C">// vm.c
+...
+uint64          uvm2ukvm(pagetable_t, pagetable_t, uint64, uint64);
+</code></pre>
+<p>在 kernel/proc.c 中，<code>fork()</code> 函数内对新进程，复制映射到 kernel table。</p>
+<pre><code class="language-C">int
+fork(void)
+{
+  ...
+  np-&gt;sz = p-&gt;sz;
+  uvm2ukvm(np-&gt;pagetable, np-&gt;kpagetable, 0, np-&gt;sz);
+  ...
+}
+</code></pre>
+<p>在 kernel/exec.c 中的 <code>exec()</code> 函数中，复制映射到 kernel table。</p>
+<pre><code class="language-C">int
+exec(char *path, char **argv)
+{
+  ...
+  p-&gt;sz = sz;
+  uvm2ukvm(p-&gt;pagetable, p-&gt;kpagetable, 0, p-&gt;sz);
+  ...
+}
+</code></pre>
+<p>在 kernel/proc.c 中，对应指导书 sbrk 的函数 <code>growproc()</code> 中，在申请/释放 用户虚拟地址空间时，对应修改 kernel table 的映射。这里注意 PLIC 的限制。</p>
+<pre><code class="language-C">int
+growproc(int n)
+{
+  uint oldsz, sz;
+  struct proc *p = myproc();
+
+  sz = p-&gt;sz;
+  oldsz = sz;
+  if(n &gt; 0){
+    if (PGROUNDUP(sz + n) &gt;= PLIC) {
+      return -1;
+    }
+    if((sz = uvmalloc(p-&gt;pagetable, sz, sz + n)) == 0) {
+      return -1;
+    }
+    uvm2ukvm(p-&gt;pagetable, p-&gt;kpagetable, oldsz, sz);
+  } else if(n &lt; 0){
+    sz = uvmdealloc(p-&gt;pagetable, sz, sz + n);
+    uvm2ukvm(p-&gt;pagetable, p-&gt;kpagetable, oldsz, sz);
+  }
+  p-&gt;sz = sz;
+  return 0;
+}
+</code></pre>
+<p>在 kernel/proc.c 中的 <code>userinit()</code> 函数，类似 <code>fork()</code>，对第1个进程复制映射。</p>
+<pre><code class="language-C">void
+userinit(void)
+{
+  ...
+  p-&gt;sz = PGSIZE;
+  uvm2ukvm(p-&gt;pagetable, p-&gt;kpagetable, 0, p-&gt;sz);
+  ...
+}
+</code></pre>
+<p>本次实验首次难度提升，写的复杂了一点，用时稍长。之后需在完整度和用时上进一步平衡。</p>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[mit6.s081 Lab02 System calls 笔记]]></title>
+        <id>https://DWAE86.github.io/post/mit6s081-lab-02-system-calls-bi-ji/</id>
+        <link href="https://DWAE86.github.io/post/mit6s081-lab-02-system-calls-bi-ji/">
+        </link>
+        <updated>2021-04-01T05:31:56.000Z</updated>
+        <content type="html"><![CDATA[<p>光速还愿，立刻写下Lab02。根据思考，之前不愿意坚持写题解和笔记就是写太繁了，这次只提关键。</p>
+<p>这次的任务是实现两个系统调用，看上去比较费劲，但读一读源码里系统调用的实现，理解一点以后还是比较好完成的，剩下的就是一些细节。这次任务对源代码的理解也有所帮助。</p>
+<h2 id="system-call-tracing">System call tracing</h2>
+<p>添加系统调用<code>trace()</code>，当所选择的系统调用被使用时，打印进程id，进程调用的系统调用名，以及系统调用返回值。参数为integer，每个bit为1（like mask）表示对应系统调用开启跟踪。</p>
+<p>首先添加声明。user/user.h中：</p>
+<pre><code class="language-C">int trace(int);
+</code></pre>
+<p>user/usys.pl中：</p>
+<pre><code class="language-perl">entry(&quot;trace&quot;);
+</code></pre>
+<p>kernel/syscall.h中：</p>
+<pre><code class="language-C">#define SYS_trace   22
+</code></pre>
+<p>接下来是实现<code>trace()</code>，通过在<code>proc</code>结构体中添加标记。根据观察，sys*.c文件用来实现系统调用。<br>
+在kernel/proc.h结构体中，定义标记：</p>
+<pre><code class="language-C">// Per-process state
+struct proc {
+  ……
+  int tracemask;               // mask record trace which syscall
+};
+</code></pre>
+<p>在kernel/sysproc.c中添加实现。当使用<code>trace()</code>是，修改标记。<code>argint()</code>是获取系统调用参数的方法：</p>
+<pre><code class="language-C">uint64
+sys_trace(void)
+{
+	int mask;
+	if(argint(0, &amp;mask) &lt; 0)
+		return -1;
+	myproc()-&gt;tracemask = mask;
+	return 0;
+}
+</code></pre>
+<p>在kernel/proc.c中，修改<code>fork()</code>，使子进程继承父进程的标记：</p>
+<pre><code class="language-C">int
+fork(void)
+{
+  ……
+  np-&gt;tracemask = p-&gt;tracemask;
+  ……
+  return pid;
+}
+</code></pre>
+<p>最后就是在kernel/syscall.c中，每当有进程使用系统调用，如果追踪，打印所需信息。<br>
+看来<code>a7</code>是系统调用号码而<code>a0</code>是系统调用返回值。<br>
+注意需添加系统调用名的字典：</p>
+<pre><code class="language-C">……
+[SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
+};
+
+const char *syscall_name[] = {
+	&quot;&quot;,
+	&quot;fork&quot;,
+	&quot;exit&quot;,
+	……
+	&quot;trace&quot;,
+};
+
+void
+syscall(void)
+{
+  int num;
+  struct proc *p = myproc();
+
+  num = p-&gt;trapframe-&gt;a7;
+  if(num &gt; 0 &amp;&amp; num &lt; NELEM(syscalls) &amp;&amp; syscalls[num]) {
+    p-&gt;trapframe-&gt;a0 = syscalls[num]();
+    
+	if((1&lt;&lt;num)&amp;(p-&gt;tracemask))
+	  printf(&quot;%d: syscall %s -&gt; %d\n&quot;, 
+			  p-&gt;pid, syscall_name[num], p-&gt;trapframe-&gt;a0);
+  } else {
+    printf(&quot;%d %s: unknown sys call %d\n&quot;,
+            p-&gt;pid, p-&gt;name, num);
+    p-&gt;trapframe-&gt;a0 = -1;
+  }
+}
+</code></pre>
+<h2 id="sysinfo">sysinfo</h2>
+<pre><code class="language-C">struct sysinfo {
+  uint64 freemem;   // amount of free memory (bytes)
+  uint64 nproc;     // number of process
+};
+</code></pre>
+<p>基于以上结构体实现系统调用<code>sysinfo()</code>，传入<code>sysinfo</code>结构体指针，将对应信息写入。<code>freemem</code>为空闲主存字节数，<code>nproc</code>为状态为<code>UNUSED</code>的进程数。</p>
+<p>首先如任务1添加对应声明，在user/user.h中先声明结构体如hints所示。注意应为任务1的<code>trace()</code>添加对应信息。</p>
+<p>在kernel/kalloc.c中，添加统计free memory的函数。加互斥锁，根据<code>freelist</code>节点数乘以每页大小得出结果：</p>
+<pre><code class="language-C">uint64
+cal_freemem(void)
+{
+	struct run *r;
+	uint64 res = 0;
+	acquire(&amp;kmem.lock);
+	r = kmem.freelist;
+	while(r)
+	{
+		res++;
+		r = r-&gt;next;
+	}
+	release(&amp;kmem.lock);
+	return res * PGSIZE;
+}
+</code></pre>
+<p>在kernel/proc.c中，添加统计<code>UNUSED</code>进程的函数。<code>proc</code>为所有进程的数组，I guess：</p>
+<pre><code class="language-C">uint64
+cal_nproc(void)
+{
+	struct proc *p;
+	uint64 res = 0;
+	for(p = proc; p &lt; &amp;proc[NPROC]; p++)
+	{
+		if(p-&gt;state != UNUSED)
+			res++;
+	}
+	return res;
+}
+</code></pre>
+<p>在kernel/defs.h中，添加这两个函数的定义：</p>
+<pre><code class="language-C">uint64          cal_freemem(void);
+……
+uint64          cal_nproc(void);
+</code></pre>
+<p>最后在kernel/sysproc.c中添加实现。<br>
+<code>argaddr()</code>将系统调用参数作为指针（即地址）获取。<br>
+<code>copyout()</code>使用，我这里是照猫画虎，注意添加错误判断：</p>
+<pre><code class="language-C">uint64
+sys_sysinfo(void)
+{
+	struct sysinfo info;
+	info.freemem = cal_freemem();
+	info.nproc = cal_nproc();
+
+	uint64 addr;
+	if(argaddr(0, &amp;addr) &lt; 0)
+		return -1;
+	
+	struct proc *p = myproc();
+	if(copyout(p-&gt;pagetable, addr, (char *)&amp;info, sizeof(info)) &lt; 0)
+		return -1;
+	
+	return 0;
+}
+</code></pre>
+<p>这次笔记记录，感觉对实验过程流程理解加深，的确有益。如果是想要认真学习的东西，写一写的确有帮助。</p>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[mit6.s081 Lab01 Unix utilities 笔记]]></title>
+        <id>https://DWAE86.github.io/post/mit6s081-lab01-unix-utilities-bi-ji/</id>
+        <link href="https://DWAE86.github.io/post/mit6s081-lab01-unix-utilities-bi-ji/">
+        </link>
+        <updated>2021-03-31T08:56:48.000Z</updated>
+        <content type="html"><![CDATA[<p>突然想起来我之前搞出来的flag，感觉总得放点啥，不然说不过去了。就把最近正在玩的mit6.s081的lab放上来吧。虽然挺菜的，但反正没人看。</p>
+<p>lab 01 主要是写一些系统调用的应用程序，算是热身和熟悉。本课程的实验自带评测脚本，运行即可知道自己的程序是否通过。最终评分也只决定于是否通过评测，不需要写实验报告。</p>
+<p>你以为我不想读研？我只是读不到好的而已了。</p>
+<h2 id="sleep">sleep</h2>
+<p>实现一个根据参数 sleep 固定时间的程序。</p>
+<pre><code class="language-C">#include &quot;kernel/types.h&quot;
+#include &quot;kernel/stat.h&quot;
+#include &quot;user/user.h&quot;
+
+int
+main(int argc, char *argv[])
+{
+	if(argc != 2) {
+		fprintf(2, &quot;usage: sleep [number]\n&quot;);
+		exit(1);
+	}
+	int n;
+	n = atoi(argv[1]);
+	sleep(n);
+	
+	exit(0);
+}
+</code></pre>
+<h2 id="pingpong">pingpong</h2>
+<p>在进程间通过管道传递一个byte，主要考察<code>pipe</code>和<code>fork</code>系统调用。</p>
+<pre><code class="language-C">#include &quot;kernel/types.h&quot;
+#include &quot;kernel/stat.h&quot;
+#include &quot;user/user.h&quot;
+
+int main()
+{
+	int p1[2], p2[2];
+	char c;
+	pipe(p1);
+	pipe(p2);
+	if(fork() == 0)
+	{
+		close(p1[1]);
+		close(p2[0]);
+		//printf(&quot;child %d is on\n&quot;, getpid());
+		read(p1[0], &amp;c, 1);
+		close(p1[0]);
+		printf(&quot;%d: received ping\n&quot;, getpid());
+		write(p2[1], &amp;c, 1);
+		close(p2[1]);
+		exit(0);
+	}
+	else
+	{
+		close(p1[0]);
+		close(p2[1]);
+		write(p1[1], &quot;\0&quot;, 1);
+		close(p1[1]);
+		read(p2[0], &amp;c, 1);
+		close(p2[0]);
+		printf(&quot;%d: received pong\n&quot;, getpid());
+		exit(0);
+	}
+}
+</code></pre>
+<h2 id="primes">primes</h2>
+<p>有一定的难度了，主要是根据 <a href="https://swtch.com/~rsc/thread/">Bell Labs and CSP Threads</a> 中描述，通过<code>pipe</code>和<code>fork</code>实现埃氏筛。这里重点在于，只能在需要新子进程时<code>fork</code>，所以通过递归实现。</p>
+<pre><code class="language-C">#include &quot;kernel/types.h&quot;
+#include &quot;kernel/stat.h&quot;
+#include &quot;user/user.h&quot;
+
+void primeproc(int rfd)
+{
+    int pnum, x;
+    if (read(rfd, &amp;pnum, sizeof(int)) == 0)
+    {
+        close(rfd);
+        exit(0);
+    }
+        
+    printf(&quot;prime %d\n&quot;, pnum);
+    int p[2];
+    pipe(p);
+    if (fork() == 0)
+    {
+        close(p[1]);
+        primeproc(p[0]);
+    }
+    else
+    {
+        close(p[0]);
+        while (read(rfd, &amp;x, sizeof(int)) &gt; 0)
+        {
+            if (x % pnum != 0)
+                write(p[1], &amp;x, sizeof(int));
+        }
+        close(rfd);
+        close(p[1]);
+        wait((int *)0);
+        exit(0);
+    }
+    return;
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc != 1)
+    {
+        fprintf(2, &quot;usage: primes \n&quot;);
+        exit(1);
+    }
+    int i, p[2];
+    pipe(p);
+    if (fork() == 0)
+    {
+        close(p[1]);
+        primeproc(p[0]);
+    }
+    else
+    {
+        close(p[0]);
+        for (i = 2; i &lt;= 35; i++)
+            write(p[1], &amp;i, sizeof(int));
+        close(p[1]);
+        wait((int *)0);
+    }
+    exit(0);
+}
+</code></pre>
+<h2 id="find">find</h2>
+<p>这个任务和之前Unix课程中的myftw类似，主要通过一个全局变量dfs目录。注意不要进入<code>.</code>和<code>..</code>目录，剩余细节（包括获得文件名）参考user/ls.c。</p>
+<pre><code class="language-C">#include &quot;kernel/types.h&quot;
+#include &quot;kernel/stat.h&quot;
+#include &quot;user/user.h&quot;
+#include &quot;kernel/fs.h&quot;
+
+char path[512], name[128];
+
+void check()
+{
+	char *p;
+	for(p = path + strlen(path); p &gt;= path &amp;&amp; *p != '/'; p--);
+	p++;
+	if(strcmp(name, p) == 0)
+		printf(&quot;%s\n&quot;, path);
+	return;
+}
+
+void work()
+{
+	int fd, len;
+	struct dirent de;
+	struct stat st;
+
+	if((fd = open(path, 0)) &lt; 0)
+	{
+		fprintf(2, &quot;find: cannot open %s\n&quot;, path);
+		return;
+	}
+	if(fstat(fd, &amp;st) &lt; 0)
+	{
+		fprintf(2, &quot;find: cannot stat %s\n&quot;, path);
+		close(fd);
+		return;
+	}
+	check();
+	if(st.type == T_DIR)
+	{
+		if(strlen(path) + 1 + DIRSIZ + 1 &gt; sizeof(path))
+		{
+			fprintf(2, &quot;find: path is too long\n&quot;);
+			exit(1);
+		}
+		len = strlen(path);
+	       	path[len] = '/';
+		while(read(fd, &amp;de, sizeof(de)) == sizeof(de))
+		{
+			if(de.inum == 0)
+				continue;
+			if(de.name[0] == '.' &amp;&amp; (de.name[1] == '.' || !de.name[1]))
+				continue;
+			strcpy(path+len+1, de.name);
+			path[len + 1 + strlen(de.name)] = 0;
+			work();
+		}	
+	}
+	close(fd);
+	return;
+}
+
+int main(int argc, char *argv[])
+{
+	if(argc != 3)
+	{
+		fprintf(2, &quot;usage: find [path] &lt;filename&gt;\n&quot;);
+		exit(1);
+	}
+	if(strlen(argv[1]) &gt; sizeof(path))
+	{
+		fprintf(2, &quot;path is too long\n&quot;);
+		exit(1);	
+	}
+	strcpy(path, argv[1]);
+	if(strlen(argv[2]) &gt; sizeof(name))
+	{
+		fprintf(2, &quot;name is too long\n&quot;);
+		exit(1);	
+	}
+	strcpy(name, argv[2]);
+	work();
+
+	exit(0);
+}
+</code></pre>
+<h2 id="xargs">xargs</h2>
+<p>新学习了一个unix命令，其实是一个exec的应用程序，不过需要将标准输入作为参数传入用来替换的调用。apparently，配合其他命令，这是一个功能强大的命令。感觉很多强大的东西反而是简单的东西。注意字符指针的使用（我忘记我这个写法的想法是从何而来的了）。</p>
+<pre><code class="language-C">#include &quot;kernel/types.h&quot;
+#include &quot;user/user.h&quot;
+#include &quot;kernel/param.h&quot;
+
+int main(int argc, char *argv[])
+{
+	char buf[MAXARG];
+	char *p = buf, *l, *r, *myargv[MAXARG];
+	int i, num;
+	for(i = 1; i &lt; argc; i++) myargv[i-1] = argv[i];
+	while(read(0, p, sizeof(char)) == sizeof(char))
+	{
+		if(*p == '\n')
+		{
+			l = buf;
+			num = argc-1;
+			while(l &lt; p)
+			{
+				while(l &lt; p &amp;&amp; *l == ' ') l++;
+				if(l == p) break;
+				myargv[num++] = l;
+				r = l;
+				while(r &lt; p &amp;&amp; *r != ' ') r++;
+				*r = 0;
+				l = r+1;
+            }
+			myargv[num] = 0;
+			if(fork() == 0)
+			{
+				exec(myargv[0], myargv);
+				fprintf(2, &quot;xargs: exec failed\n&quot;);
+				exit(1);
+			}
+			else
+			{
+				wait((int *)0);
+				p = buf;
+			}
+		}
+		else
+			p++;
+	}
+
+	exit(0);
+}
+</code></pre>
+<p>第一次的实验就是这样了，第一次嘛，都感觉很好玩，如果以后我还想写的话，会继续写，毕竟现在看来基本是复制粘贴。</p>
+]]></content>
+    </entry>
+</feed>

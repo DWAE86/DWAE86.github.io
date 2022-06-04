@@ -1,0 +1,377 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CSZ Dairy</title>
+<meta name="description" content="fighting" />
+<link rel="shortcut icon" href="https://DWAE86.github.io/favicon.ico?v=1654315708494">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.7.2/animate.min.css">
+
+<link rel="stylesheet" href="https://DWAE86.github.io/styles/main.css">
+
+
+
+  </head>
+  <body>
+    <div id="app" class="main px-4 flex flex-col lg:flex-row">
+      <div id="sidebar" class="sidebar-wrapper lg:static lg:w-1/4">
+  <div class="lg:sticky top-0">
+    <div class="sidebar-content">
+      <div class="flex lg:block p-4 lg:px-0 items-center fixed lg:static lg:block top-0 right-0 left-0 bg-white z-50">
+        <i class="ri-menu-2-line lg:mt-4 text-2xl cursor-pointer animated fadeIn" onclick="openMenu()"></i>
+        <a href="https://DWAE86.github.io">
+          <img class="animated fadeInLeft avatar rounded-lg mx-4 lg:mt-32 lg:mx-0 mt-0 lg:w-24 lg:h-24 w-12 w-12" src="https://DWAE86.github.io/images/avatar.png?v=1654315708494" alt="">
+        </a>
+        <h1 class="animated fadeInLeft lg:text-4xl font-extrabold lg:mt-8 mt-0 text-xl" style="animation-delay: 0.2s">CSZ Dairy</h1>
+      </div>
+      
+        <div class="animated fadeInLeft" style="animation-delay: 0.4s">
+          <p class="my-4 text-gray-600 font-light hidden lg:block">
+            文章目录
+          </p>
+          <div class="toc-container hidden lg:block">
+            <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#system-call-tracing">System call tracing</a></li>
+<li><a href="#sysinfo">sysinfo</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      
+    </div>
+  </div>
+</div>
+
+<div class="menu-container">
+  <i class="ri-arrow-left-line text-2xl cursor-pointer animated fadeIn close-menu-btn" onclick="closeMenu()"></i>
+  <div>
+    
+      
+        <a href="/" class="menu" style="animation-delay: 0s">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu" style="animation-delay: 0.2s">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu" style="animation-delay: 0.4s">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu" style="animation-delay: 0.6000000000000001s">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="site-footer">
+    <div class="py-4 text-gray-700">Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a></div>
+    <a class="rss" href="https://DWAE86.github.io/atom.xml" target="_blank">RSS</a>
+  </div>
+</div>
+<div class="mask" onclick="closeMenu()">
+</div>
+      <div class="content-wrapper py-32 lg:p-8 lg:w-3/4 post-detail animated fadeIn">
+        <h1 class="text-3xl font-bold lg:mt-16">mit6.s081 Lab02 System calls 笔记</h1>
+        <div class="text-sm text-gray-700 lg:my-8">
+          2021-04-01 / 4 min read
+        </div>
+        
+        <div class="post-content yue">
+          <p>光速还愿，立刻写下Lab02。根据思考，之前不愿意坚持写题解和笔记就是写太繁了，这次只提关键。</p>
+<p>这次的任务是实现两个系统调用，看上去比较费劲，但读一读源码里系统调用的实现，理解一点以后还是比较好完成的，剩下的就是一些细节。这次任务对源代码的理解也有所帮助。</p>
+<h2 id="system-call-tracing">System call tracing</h2>
+<p>添加系统调用<code>trace()</code>，当所选择的系统调用被使用时，打印进程id，进程调用的系统调用名，以及系统调用返回值。参数为integer，每个bit为1（like mask）表示对应系统调用开启跟踪。</p>
+<p>首先添加声明。user/user.h中：</p>
+<pre><code class="language-C">int trace(int);
+</code></pre>
+<p>user/usys.pl中：</p>
+<pre><code class="language-perl">entry(&quot;trace&quot;);
+</code></pre>
+<p>kernel/syscall.h中：</p>
+<pre><code class="language-C">#define SYS_trace   22
+</code></pre>
+<p>接下来是实现<code>trace()</code>，通过在<code>proc</code>结构体中添加标记。根据观察，sys*.c文件用来实现系统调用。<br>
+在kernel/proc.h结构体中，定义标记：</p>
+<pre><code class="language-C">// Per-process state
+struct proc {
+  ……
+  int tracemask;               // mask record trace which syscall
+};
+</code></pre>
+<p>在kernel/sysproc.c中添加实现。当使用<code>trace()</code>是，修改标记。<code>argint()</code>是获取系统调用参数的方法：</p>
+<pre><code class="language-C">uint64
+sys_trace(void)
+{
+	int mask;
+	if(argint(0, &amp;mask) &lt; 0)
+		return -1;
+	myproc()-&gt;tracemask = mask;
+	return 0;
+}
+</code></pre>
+<p>在kernel/proc.c中，修改<code>fork()</code>，使子进程继承父进程的标记：</p>
+<pre><code class="language-C">int
+fork(void)
+{
+  ……
+  np-&gt;tracemask = p-&gt;tracemask;
+  ……
+  return pid;
+}
+</code></pre>
+<p>最后就是在kernel/syscall.c中，每当有进程使用系统调用，如果追踪，打印所需信息。<br>
+看来<code>a7</code>是系统调用号码而<code>a0</code>是系统调用返回值。<br>
+注意需添加系统调用名的字典：</p>
+<pre><code class="language-C">……
+[SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
+};
+
+const char *syscall_name[] = {
+	&quot;&quot;,
+	&quot;fork&quot;,
+	&quot;exit&quot;,
+	……
+	&quot;trace&quot;,
+};
+
+void
+syscall(void)
+{
+  int num;
+  struct proc *p = myproc();
+
+  num = p-&gt;trapframe-&gt;a7;
+  if(num &gt; 0 &amp;&amp; num &lt; NELEM(syscalls) &amp;&amp; syscalls[num]) {
+    p-&gt;trapframe-&gt;a0 = syscalls[num]();
+    
+	if((1&lt;&lt;num)&amp;(p-&gt;tracemask))
+	  printf(&quot;%d: syscall %s -&gt; %d\n&quot;, 
+			  p-&gt;pid, syscall_name[num], p-&gt;trapframe-&gt;a0);
+  } else {
+    printf(&quot;%d %s: unknown sys call %d\n&quot;,
+            p-&gt;pid, p-&gt;name, num);
+    p-&gt;trapframe-&gt;a0 = -1;
+  }
+}
+</code></pre>
+<h2 id="sysinfo">sysinfo</h2>
+<pre><code class="language-C">struct sysinfo {
+  uint64 freemem;   // amount of free memory (bytes)
+  uint64 nproc;     // number of process
+};
+</code></pre>
+<p>基于以上结构体实现系统调用<code>sysinfo()</code>，传入<code>sysinfo</code>结构体指针，将对应信息写入。<code>freemem</code>为空闲主存字节数，<code>nproc</code>为状态为<code>UNUSED</code>的进程数。</p>
+<p>首先如任务1添加对应声明，在user/user.h中先声明结构体如hints所示。注意应为任务1的<code>trace()</code>添加对应信息。</p>
+<p>在kernel/kalloc.c中，添加统计free memory的函数。加互斥锁，根据<code>freelist</code>节点数乘以每页大小得出结果：</p>
+<pre><code class="language-C">uint64
+cal_freemem(void)
+{
+	struct run *r;
+	uint64 res = 0;
+	acquire(&amp;kmem.lock);
+	r = kmem.freelist;
+	while(r)
+	{
+		res++;
+		r = r-&gt;next;
+	}
+	release(&amp;kmem.lock);
+	return res * PGSIZE;
+}
+</code></pre>
+<p>在kernel/proc.c中，添加统计<code>UNUSED</code>进程的函数。<code>proc</code>为所有进程的数组，I guess：</p>
+<pre><code class="language-C">uint64
+cal_nproc(void)
+{
+	struct proc *p;
+	uint64 res = 0;
+	for(p = proc; p &lt; &amp;proc[NPROC]; p++)
+	{
+		if(p-&gt;state != UNUSED)
+			res++;
+	}
+	return res;
+}
+</code></pre>
+<p>在kernel/defs.h中，添加这两个函数的定义：</p>
+<pre><code class="language-C">uint64          cal_freemem(void);
+……
+uint64          cal_nproc(void);
+</code></pre>
+<p>最后在kernel/sysproc.c中添加实现。<br>
+<code>argaddr()</code>将系统调用参数作为指针（即地址）获取。<br>
+<code>copyout()</code>使用，我这里是照猫画虎，注意添加错误判断：</p>
+<pre><code class="language-C">uint64
+sys_sysinfo(void)
+{
+	struct sysinfo info;
+	info.freemem = cal_freemem();
+	info.nproc = cal_nproc();
+
+	uint64 addr;
+	if(argaddr(0, &amp;addr) &lt; 0)
+		return -1;
+	
+	struct proc *p = myproc();
+	if(copyout(p-&gt;pagetable, addr, (char *)&amp;info, sizeof(info)) &lt; 0)
+		return -1;
+	
+	return 0;
+}
+</code></pre>
+<p>这次笔记记录，感觉对实验过程流程理解加深，的确有益。如果是想要认真学习的东西，写一写的确有帮助。</p>
+
+        </div>
+
+        
+          <a class="animated fadeInUp p-2 items-center text-sm text-gray-700 border hover:bg-gray-300 leading-none rounded-full flex lg:inline-flex m-4 " href="https://DWAE86.github.io/tag/fI5sQV32H/">
+            <span class="flex-auto">mit6.s081</span>
+          </a>
+        
+
+
+        <div class="flex justify-between py-8">
+          
+            <div class="prev-post">
+              <a href="https://DWAE86.github.io/post/mit6s081-lab-03-page-tables-bi-ji/">
+                <h3 class="post-title">
+                  <i class="ri-arrow-left-line"></i>
+                  mit6.s081 Lab03 Page Tables 笔记
+                </h3>
+              </a>
+            </div>
+          
+
+          
+            <div class="next-post">
+              <a href="https://DWAE86.github.io/post/mit6s081-lab01-unix-utilities-bi-ji/">
+                <h3 class="post-title">
+                  mit6.s081 Lab01 Unix utilities 笔记
+                  <i class="ri-arrow-right-line"></i>
+                </h3>
+              </a>
+            </div>
+          
+        </div>
+
+        
+
+      </div>
+    </div>
+
+    <script src="https://DWAE86.github.io/media/prism.js"></script>  
+<script>
+
+Prism.highlightAll()
+let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+// This should probably be throttled.
+// Especially because it triggers during smooth scrolling.
+// https://lodash.com/docs/4.17.10#throttle
+// You could do like...
+// window.addEventListener("scroll", () => {
+//    _.throttle(doThatStuff, 100);
+// });
+// Only not doing it here to keep this Pen dependency-free.
+
+window.addEventListener("scroll", event => {
+  let fromTop = window.scrollY;
+
+  mainNavLinks.forEach((link, index) => {
+    let section = document.getElementById(decodeURI(link.hash).substring(1));
+    let nextSection = null
+    if (mainNavLinks[index + 1]) {
+      nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+    }
+    if (section.offsetTop <= fromTop) {
+      if (nextSection) {
+        if (nextSection.offsetTop > fromTop) {
+          link.classList.add("current");
+        } else {
+          link.classList.remove("current");    
+        }
+      } else {
+        link.classList.add("current");
+      }
+    } else {
+      link.classList.remove("current");
+    }
+  });
+});
+
+
+document.addEventListener("DOMContentLoaded", function() {
+  var lazyImages = [].slice.call(document.querySelectorAll(".post-feature-image.lazy"));
+
+  if ("IntersectionObserver" in window) {
+    let lazyImageObserver = new IntersectionObserver(function(entries, observer) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          let lazyImage = entry.target
+          lazyImage.style.backgroundImage = `url(${lazyImage.dataset.bg})`
+          lazyImage.classList.remove("lazy")
+          lazyImageObserver.unobserve(lazyImage)
+        }
+      });
+    });
+
+    lazyImages.forEach(function(lazyImage) {
+      lazyImageObserver.observe(lazyImage)
+    })
+  } else {
+    // Possibly fall back to a more compatible method here
+  }
+});
+
+const menuContainer = document.querySelector('.menu-container')
+const menus = document.querySelectorAll('.menu-container .menu')
+const mask = document.querySelector('.mask')
+const contentWrapper = document.querySelector('.content-wrapper')
+const latestArticle = document.querySelector('.latest-article')
+const readMore = document.querySelector('.read-more')
+const indexPage = document.querySelector('.index-page')
+
+const isHome = location.pathname === '/'
+if (latestArticle) {
+  latestArticle.style.display = isHome ? 'block' : 'none'
+  readMore.style.display = isHome ? 'block' : 'none'
+  indexPage.style.display = isHome ? 'none' : 'block'
+}
+
+const openMenu = () => {
+  menuContainer.classList.add('open')
+  menus.forEach(menu => {
+    menu.classList.add('animated', 'fadeInLeft')
+  })
+  mask.classList.add('open')
+  contentWrapper.classList.add('is-second')
+}
+
+const closeMenu = () => {
+  menuContainer.classList.remove('open')
+  menus.forEach(menu => {
+    menu.classList.remove('animated', 'fadeInLeft')
+  })
+  mask.classList.remove('open')
+  contentWrapper.classList.remove('is-second')
+}
+</script>
+  
+  </body>
+</html>

@@ -1,0 +1,513 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CSZ Dairy</title>
+<meta name="description" content="fighting" />
+<link rel="shortcut icon" href="https://DWAE86.github.io/favicon.ico?v=1654315708494">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.7.2/animate.min.css">
+
+<link rel="stylesheet" href="https://DWAE86.github.io/styles/main.css">
+
+
+
+  </head>
+  <body>
+    <div id="app" class="main px-4 flex flex-col lg:flex-row">
+      <div id="sidebar" class="sidebar-wrapper lg:static lg:w-1/4">
+  <div class="lg:sticky top-0">
+    <div class="sidebar-content">
+      <div class="flex lg:block p-4 lg:px-0 items-center fixed lg:static lg:block top-0 right-0 left-0 bg-white z-50">
+        <i class="ri-menu-2-line lg:mt-4 text-2xl cursor-pointer animated fadeIn" onclick="openMenu()"></i>
+        <a href="https://DWAE86.github.io">
+          <img class="animated fadeInLeft avatar rounded-lg mx-4 lg:mt-32 lg:mx-0 mt-0 lg:w-24 lg:h-24 w-12 w-12" src="https://DWAE86.github.io/images/avatar.png?v=1654315708494" alt="">
+        </a>
+        <h1 class="animated fadeInLeft lg:text-4xl font-extrabold lg:mt-8 mt-0 text-xl" style="animation-delay: 0.2s">CSZ Dairy</h1>
+      </div>
+      
+        <div class="animated fadeInLeft" style="animation-delay: 0.4s">
+          <p class="my-4 text-gray-600 font-light hidden lg:block">
+            文章目录
+          </p>
+          <div class="toc-container hidden lg:block">
+            <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#print-a-page-table">Print a page table</a></li>
+<li><a href="#a-kernel-page-table-per-process">A kernel page table per process</a></li>
+<li><a href="#simplify-copyincopyinstr">Simplify copyin/copyinstr</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      
+    </div>
+  </div>
+</div>
+
+<div class="menu-container">
+  <i class="ri-arrow-left-line text-2xl cursor-pointer animated fadeIn close-menu-btn" onclick="closeMenu()"></i>
+  <div>
+    
+      
+        <a href="/" class="menu" style="animation-delay: 0s">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu" style="animation-delay: 0.2s">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu" style="animation-delay: 0.4s">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu" style="animation-delay: 0.6000000000000001s">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="site-footer">
+    <div class="py-4 text-gray-700">Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a></div>
+    <a class="rss" href="https://DWAE86.github.io/atom.xml" target="_blank">RSS</a>
+  </div>
+</div>
+<div class="mask" onclick="closeMenu()">
+</div>
+      <div class="content-wrapper py-32 lg:p-8 lg:w-3/4 post-detail animated fadeIn">
+        <h1 class="text-3xl font-bold lg:mt-16">mit6.s081 Lab03 Page Tables 笔记</h1>
+        <div class="text-sm text-gray-700 lg:my-8">
+          2021-09-16 / 9 min read
+        </div>
+        
+        <div class="post-content yue">
+          <p>Long time no see。lab03是在实习期间完成的，进行一下总结。</p>
+<h2 id="print-a-page-table">Print a page table</h2>
+<p>一个简单的任务，实现一个打印页表的函数 <code>vmprint()</code>。首先要理解页表的结构，放一张图。</p>
+<figure data-type="image" tabindex="1"><img src="https://DWAE86.github.io/post-images/1632902420085.png" alt="" loading="lazy"></figure>
+<p>在 kernel/vm.c 中，实现递归函数。使用 kernel/riscv.h 中的宏定义。一次函数过程输出一行，根据深度输出前缀。输入 <code>pagetable</code> 本质是物理地址，也就是 satp。<code>pte</code> 是字节内容。注意如果 <code>pte</code> 对应页表则递归输出。<code>%p</code> 可以以hex输出字节内容。</p>
+<pre><code class="language-C">void
+vmprint(pagetable_t pagetable, int depth)
+{
+  if (depth == 1) {
+    printf(&quot;page table %p\n&quot;, pagetable);
+  }
+  for (int i = 0; i &lt; 512; i++) {
+    pte_t pte = pagetable[i];
+    if (!(pte &amp; PTE_V)) {
+      continue;
+    }
+    for (int j = 0; j &lt; depth; j++) {
+      if (j != 0) {
+        printf(&quot; &quot;);
+      }
+      printf(&quot;..&quot;);
+    }
+    printf(&quot;%d: pte %p pa %p\n&quot;, i, pte, PTE2PA(pte));
+    if ((pte &amp; (PTE_R | PTE_W | PTE_X)) == 0) {
+        uint64 child = PTE2PA(pte);
+        vmprint((pagetable_t)child, depth+1);
+    }
+  }
+}
+</code></pre>
+<p>将函数声明添加到 kernel/defs.h 中。</p>
+<pre><code class="language-C">// vm.c
+...
+void            vmprint(pagetable_t, int);
+</code></pre>
+<p>在 kernel/exec.c 中，添加对函数的调用。</p>
+<pre><code class="language-C">int
+exec(char *path, char **argv)
+{
+  ...
+  if (p-&gt;pid == 1) {
+    vmprint(p-&gt;pagetable, 1);
+  }
+  ...
+}
+</code></pre>
+<h2 id="a-kernel-page-table-per-process">A kernel page table per process</h2>
+<p>本任务之前，xv6 只有一个 kernel table，是直接将虚拟地址映射到同一物理地址。在 kernel 中使用 user memory 虚拟地址，需先转换为物理地址，即唯一 kernel table 的虚拟地址。</p>
+<p>这一部分任务是给每个进程一份 kernel table 的 copy，这样在kernel里无需转换。我的理解是，初始 <code>kernel_pagetable</code> 包含了所有进程的 kernel stack 的映射，而每个进程的 kernel table 的 copy 只包含了自己的 kernel stack 的映射，其余没有区别。</p>
+<p>在 kernel/proc.h 的 <code>struct proc</code> 中，添加成员。</p>
+<pre><code class="language-C">struct proc {
+    ...
+  pagetable_t kpagetable;
+};
+</code></pre>
+<p>在 kernel/vm.c 中，仿照 <code>kvminit()</code>，编写函数 <code>makekpt()</code> ，为新进程制造一个 kernel table 的 copy。每个进程的 kernel stack 在 <code>kernel_pagetable</code> 的虚拟地址，为输入参数，找到对应的物理地址，映射到制造的 kernel table 的 copy 中。</p>
+<pre><code class="language-C">pagetable_t
+makekpt(uint64 va)
+{
+  pagetable_t pagetable = uvmcreate();
+  if (pagetable == 0) {
+    return 0;
+  }
+
+  uvmmap(pagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(pagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(pagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  uvmmap(pagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  uvmmap(pagetable, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  uvmmap(pagetable, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  uvmmap(pagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  pte_t *pte = walk(kernel_pagetable, va, 0);
+  if (pte == 0) {
+    panic(&quot;makekpt: walk&quot;);
+  }
+  uint64 pa = PTE2PA(*pte);
+  uvmmap(pagetable, va, pa, PGSIZE, PTE_R | PTE_W);
+
+  /*int count = 0;
+  for (uint64 i = 0; i &lt; 128*1024*1024; i += PAGESIZE) {
+    if (walk(pagetable, i, 0) != walk(kernel_pagetable, i, 0)) {
+      count++;
+    }
+  }
+  printf(&quot;*** count = %d ***\n&quot;);*/
+
+  return pagetable;
+}
+
+void
+uvmmap(pagetable_t pt, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if(mappages(pt, va, sz, pa, perm) != 0)
+    panic(&quot;uvmmap&quot;);
+}
+</code></pre>
+<p>在 kernel/vm.c 中，实现改变 satp 的函数 <code>kvmmodifyhart()</code>。</p>
+<pre><code class="language-C">void
+kvmmodifyhart(pagetable_t pagetable)
+{
+  w_satp(MAKE_SATP(pagetable));
+  sfence_vma();
+}
+</code></pre>
+<p>在 kernel/vm.c 中，参考 <code>freewalk()</code>，实现释放页表的函数 <code>freewalknoleaf()</code>，此函数的特点是只释放页表，而不释放对应的物理地址，否则其他 kernel table 的 copy 失效。你不能清空 kernel空间吧。</p>
+<pre><code class="language-C">void
+freewalknoleaf(pagetable_t pagetable)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i &lt; 512; i++){
+    pte_t pte = pagetable[i];
+    if((pte &amp; PTE_V) &amp;&amp; (pte &amp; (PTE_R|PTE_W|PTE_X)) == 0){
+      // this PTE points to a lower-level page table.
+      uint64 child = PTE2PA(pte);
+      freewalknoleaf((pagetable_t)child);
+    }
+    pagetable[i] = 0;
+  }
+  kfree((void*)pagetable);
+}
+</code></pre>
+<p>在 kernel/defs.h 中，添加对以上函数的声明。</p>
+<pre><code class="language-C">// vm.c
+...
+pagetable_t     makekpt(uint64);
+void            uvmmap(pagetable_t, uint64, uint64, uint64, int);
+void            kvmmodifyhart(pagetable_t);
+void            freewalknoleaf(pagetable_t);
+</code></pre>
+<p>在 kernel/proc.c 中的 <code>allocproc()</code> 函数中，添加对 <code>makekpt()</code> 的调用。</p>
+<pre><code class="language-C">static struct proc*
+allocproc(void)
+{
+  ...
+  p-&gt;kpagetable = makekpt(p-&gt;kstack);
+  if (p-&gt;kpagetable == 0) {
+    freeproc(p);
+    release(&amp;p-&gt;lock);
+    return 0;
+  }
+
+  return p;
+}
+</code></pre>
+<p>在 kernel/proc.c 中的 <code>scheduler()</code> 函数中，执行对 satp 的修改。</p>
+<pre><code class="language-C">void
+scheduler(void)
+{
+  ...
+        c-&gt;proc = p;
+        kvmmodifyhart(p-&gt;kpagetable);
+  ...
+        c-&gt;proc = 0;
+        kvminithart(); // use kernel_pagetable
+  ...
+}
+</code></pre>
+<p>在 kernel/proc.c 中的 <code>freeproc()</code> 函数中，对页表进行释放。</p>
+<pre><code class="language-C">static void
+freeproc(struct proc *p)
+{
+  ...
+  if (p-&gt;kpagetable) {
+    freewalknoleaf(p-&gt;kpagetable);
+  }
+  p-&gt;kpagetable = 0;
+}
+</code></pre>
+<h2 id="simplify-copyincopyinstr">Simplify copyin/copyinstr</h2>
+<p>本任务之前，在 kernel 内使用用户虚拟地址时，会先找到此虚拟地址对应的物理地址，并视作 kernel table 的虚拟地址，进而使用。</p>
+<p>我们的任务是利用 kernel table 从 0 到 0x0C000000 的未映射虚拟地址空间，让用户虚拟地址一一对应自己 copy 的 kernel table 的虚拟地址。例如用户虚拟地址 x 映射物理地址 y，我们要让kernel table 虚拟地址 x 也映射物理地址 y。这样 kernel 内使用用户虚拟地址时，直接将其视作 kernel table 的虚拟地址即可，无需顺表查找一次。自然，用户可使用的虚拟地址空间也被限制为 0 到 0x0C000000。</p>
+<p>kernel 内的使用，用 <code>copyin()</code> 和 <code>copyinstr()</code> 测试。在 kernel/vm.c 将其替换为新版本，新版本内直接将用户虚拟地址作为 kernel table 虚拟地址。</p>
+<pre><code class="language-C">int
+copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
+{
+  return copyin_new(pagetable, dst, srcva, len);
+}
+
+int
+copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
+{
+  return copyinstr_new(pagetable, dst, srcva, max);
+}
+</code></pre>
+<p>在 kernel/vm.c 中，实现函数 <code>uvm2ukvm()</code>，实现将 kernel table 映射到用户虚拟地址对应的物理地址。找到用户虚拟地址对应的 pte，关闭 PTE_U，赋值给 kernel table 对应的 pte。注意 PLIC 即 0x0C000000 限制。</p>
+<p>这里利用 <code>uvmunmap()</code> 多实现了一个释放功能，不是必须，但又是必须。这里只释放页表，物理空间在用户虚拟地址空间释放时已经被释放。</p>
+<pre><code class="language-C">uint64
+uvm2ukvm(pagetable_t pagetable, pagetable_t kpagetable, uint64 old\
+sz, uint64 newsz)
+{
+  //printf(&quot;*** uvm2ukvm %p %p ***\n&quot;, oldsz, newsz);
+  if (PGROUNDUP(oldsz) &gt;= PLIC || PGROUNDUP(newsz) &gt;= PLIC) {
+    panic(&quot;uvm2ukvm: PLIC&quot;);
+  }
+  if (newsz &gt; oldsz) {
+    oldsz = PGROUNDUP(oldsz);
+    for(uint64 a = oldsz; a &lt; newsz; a += PGSIZE) {
+      pte_t *pte = walk(pagetable, a, 0);
+      if (pte == 0) {
+        panic(&quot;uvm2ukvm walk&quot;);
+      }
+      pte_t *kpte = walk(kpagetable, a, 1);
+      if (kpte == 0) {
+        panic(&quot;uvm2ukvm walk&quot;);
+      }
+      *kpte = (*pte &amp; (~PTE_U));
+    }
+  } else if (newsz &lt; oldsz) {
+    if(PGROUNDUP(newsz) &lt; PGROUNDUP(oldsz)) {
+      int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;    
+      uvmunmap(kpagetable, PGROUNDUP(newsz), npages, 0);
+    }
+  }
+
+  return newsz;
+}
+</code></pre>
+<p>在 kernel/defs.h 中，添加函数声明。</p>
+<pre><code class="language-C">// vm.c
+...
+uint64          uvm2ukvm(pagetable_t, pagetable_t, uint64, uint64);
+</code></pre>
+<p>在 kernel/proc.c 中，<code>fork()</code> 函数内对新进程，复制映射到 kernel table。</p>
+<pre><code class="language-C">int
+fork(void)
+{
+  ...
+  np-&gt;sz = p-&gt;sz;
+  uvm2ukvm(np-&gt;pagetable, np-&gt;kpagetable, 0, np-&gt;sz);
+  ...
+}
+</code></pre>
+<p>在 kernel/exec.c 中的 <code>exec()</code> 函数中，复制映射到 kernel table。</p>
+<pre><code class="language-C">int
+exec(char *path, char **argv)
+{
+  ...
+  p-&gt;sz = sz;
+  uvm2ukvm(p-&gt;pagetable, p-&gt;kpagetable, 0, p-&gt;sz);
+  ...
+}
+</code></pre>
+<p>在 kernel/proc.c 中，对应指导书 sbrk 的函数 <code>growproc()</code> 中，在申请/释放 用户虚拟地址空间时，对应修改 kernel table 的映射。这里注意 PLIC 的限制。</p>
+<pre><code class="language-C">int
+growproc(int n)
+{
+  uint oldsz, sz;
+  struct proc *p = myproc();
+
+  sz = p-&gt;sz;
+  oldsz = sz;
+  if(n &gt; 0){
+    if (PGROUNDUP(sz + n) &gt;= PLIC) {
+      return -1;
+    }
+    if((sz = uvmalloc(p-&gt;pagetable, sz, sz + n)) == 0) {
+      return -1;
+    }
+    uvm2ukvm(p-&gt;pagetable, p-&gt;kpagetable, oldsz, sz);
+  } else if(n &lt; 0){
+    sz = uvmdealloc(p-&gt;pagetable, sz, sz + n);
+    uvm2ukvm(p-&gt;pagetable, p-&gt;kpagetable, oldsz, sz);
+  }
+  p-&gt;sz = sz;
+  return 0;
+}
+</code></pre>
+<p>在 kernel/proc.c 中的 <code>userinit()</code> 函数，类似 <code>fork()</code>，对第1个进程复制映射。</p>
+<pre><code class="language-C">void
+userinit(void)
+{
+  ...
+  p-&gt;sz = PGSIZE;
+  uvm2ukvm(p-&gt;pagetable, p-&gt;kpagetable, 0, p-&gt;sz);
+  ...
+}
+</code></pre>
+<p>本次实验首次难度提升，写的复杂了一点，用时稍长。之后需在完整度和用时上进一步平衡。</p>
+
+        </div>
+
+        
+          <a class="animated fadeInUp p-2 items-center text-sm text-gray-700 border hover:bg-gray-300 leading-none rounded-full flex lg:inline-flex m-4 " href="https://DWAE86.github.io/tag/fI5sQV32H/">
+            <span class="flex-auto">mit6.s081</span>
+          </a>
+        
+
+
+        <div class="flex justify-between py-8">
+          
+            <div class="prev-post">
+              <a href="https://DWAE86.github.io/post/mit6s081-lab04-traps-bi-ji/">
+                <h3 class="post-title">
+                  <i class="ri-arrow-left-line"></i>
+                  mit6.s081 Lab04 Traps 笔记
+                </h3>
+              </a>
+            </div>
+          
+
+          
+            <div class="next-post">
+              <a href="https://DWAE86.github.io/post/mit6s081-lab-02-system-calls-bi-ji/">
+                <h3 class="post-title">
+                  mit6.s081 Lab02 System calls 笔记
+                  <i class="ri-arrow-right-line"></i>
+                </h3>
+              </a>
+            </div>
+          
+        </div>
+
+        
+
+      </div>
+    </div>
+
+    <script src="https://DWAE86.github.io/media/prism.js"></script>  
+<script>
+
+Prism.highlightAll()
+let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+// This should probably be throttled.
+// Especially because it triggers during smooth scrolling.
+// https://lodash.com/docs/4.17.10#throttle
+// You could do like...
+// window.addEventListener("scroll", () => {
+//    _.throttle(doThatStuff, 100);
+// });
+// Only not doing it here to keep this Pen dependency-free.
+
+window.addEventListener("scroll", event => {
+  let fromTop = window.scrollY;
+
+  mainNavLinks.forEach((link, index) => {
+    let section = document.getElementById(decodeURI(link.hash).substring(1));
+    let nextSection = null
+    if (mainNavLinks[index + 1]) {
+      nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+    }
+    if (section.offsetTop <= fromTop) {
+      if (nextSection) {
+        if (nextSection.offsetTop > fromTop) {
+          link.classList.add("current");
+        } else {
+          link.classList.remove("current");    
+        }
+      } else {
+        link.classList.add("current");
+      }
+    } else {
+      link.classList.remove("current");
+    }
+  });
+});
+
+
+document.addEventListener("DOMContentLoaded", function() {
+  var lazyImages = [].slice.call(document.querySelectorAll(".post-feature-image.lazy"));
+
+  if ("IntersectionObserver" in window) {
+    let lazyImageObserver = new IntersectionObserver(function(entries, observer) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          let lazyImage = entry.target
+          lazyImage.style.backgroundImage = `url(${lazyImage.dataset.bg})`
+          lazyImage.classList.remove("lazy")
+          lazyImageObserver.unobserve(lazyImage)
+        }
+      });
+    });
+
+    lazyImages.forEach(function(lazyImage) {
+      lazyImageObserver.observe(lazyImage)
+    })
+  } else {
+    // Possibly fall back to a more compatible method here
+  }
+});
+
+const menuContainer = document.querySelector('.menu-container')
+const menus = document.querySelectorAll('.menu-container .menu')
+const mask = document.querySelector('.mask')
+const contentWrapper = document.querySelector('.content-wrapper')
+const latestArticle = document.querySelector('.latest-article')
+const readMore = document.querySelector('.read-more')
+const indexPage = document.querySelector('.index-page')
+
+const isHome = location.pathname === '/'
+if (latestArticle) {
+  latestArticle.style.display = isHome ? 'block' : 'none'
+  readMore.style.display = isHome ? 'block' : 'none'
+  indexPage.style.display = isHome ? 'none' : 'block'
+}
+
+const openMenu = () => {
+  menuContainer.classList.add('open')
+  menus.forEach(menu => {
+    menu.classList.add('animated', 'fadeInLeft')
+  })
+  mask.classList.add('open')
+  contentWrapper.classList.add('is-second')
+}
+
+const closeMenu = () => {
+  menuContainer.classList.remove('open')
+  menus.forEach(menu => {
+    menu.classList.remove('animated', 'fadeInLeft')
+  })
+  mask.classList.remove('open')
+  contentWrapper.classList.remove('is-second')
+}
+</script>
+  
+  </body>
+</html>

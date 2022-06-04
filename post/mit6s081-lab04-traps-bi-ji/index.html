@@ -1,0 +1,430 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CSZ Dairy</title>
+<meta name="description" content="fighting" />
+<link rel="shortcut icon" href="https://DWAE86.github.io/favicon.ico?v=1654315708494">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.7.2/animate.min.css">
+
+<link rel="stylesheet" href="https://DWAE86.github.io/styles/main.css">
+
+
+
+  </head>
+  <body>
+    <div id="app" class="main px-4 flex flex-col lg:flex-row">
+      <div id="sidebar" class="sidebar-wrapper lg:static lg:w-1/4">
+  <div class="lg:sticky top-0">
+    <div class="sidebar-content">
+      <div class="flex lg:block p-4 lg:px-0 items-center fixed lg:static lg:block top-0 right-0 left-0 bg-white z-50">
+        <i class="ri-menu-2-line lg:mt-4 text-2xl cursor-pointer animated fadeIn" onclick="openMenu()"></i>
+        <a href="https://DWAE86.github.io">
+          <img class="animated fadeInLeft avatar rounded-lg mx-4 lg:mt-32 lg:mx-0 mt-0 lg:w-24 lg:h-24 w-12 w-12" src="https://DWAE86.github.io/images/avatar.png?v=1654315708494" alt="">
+        </a>
+        <h1 class="animated fadeInLeft lg:text-4xl font-extrabold lg:mt-8 mt-0 text-xl" style="animation-delay: 0.2s">CSZ Dairy</h1>
+      </div>
+      
+        <div class="animated fadeInLeft" style="animation-delay: 0.4s">
+          <p class="my-4 text-gray-600 font-light hidden lg:block">
+            文章目录
+          </p>
+          <div class="toc-container hidden lg:block">
+            <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#risc-v-assembly">RISC-V assembly</a></li>
+<li><a href="#backtrace">Backtrace</a></li>
+<li><a href="#alarm">Alarm</a>
+<ul>
+<li><a href="#test0">test0</a></li>
+<li><a href="#test1test2">test1/test2</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      
+    </div>
+  </div>
+</div>
+
+<div class="menu-container">
+  <i class="ri-arrow-left-line text-2xl cursor-pointer animated fadeIn close-menu-btn" onclick="closeMenu()"></i>
+  <div>
+    
+      
+        <a href="/" class="menu" style="animation-delay: 0s">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu" style="animation-delay: 0.2s">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu" style="animation-delay: 0.4s">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu" style="animation-delay: 0.6000000000000001s">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="site-footer">
+    <div class="py-4 text-gray-700">Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a></div>
+    <a class="rss" href="https://DWAE86.github.io/atom.xml" target="_blank">RSS</a>
+  </div>
+</div>
+<div class="mask" onclick="closeMenu()">
+</div>
+      <div class="content-wrapper py-32 lg:p-8 lg:w-3/4 post-detail animated fadeIn">
+        <h1 class="text-3xl font-bold lg:mt-16">mit6.s081 Lab04 Traps 笔记</h1>
+        <div class="text-sm text-gray-700 lg:my-8">
+          2021-10-06 / 6 min read
+        </div>
+        
+        <div class="post-content yue">
+          <p>这一部分，重要理解 系统调用（ecall）/ interrupt / exception 发生时，uservec -&gt; usertrap -&gt; 处理 -&gt; usertrapret -&gt; userret 的过程，以及其中 reg 等环境的保存。具体可看视频。</p>
+<h2 id="risc-v-assembly">RISC-V assembly</h2>
+<p>这一部分是对汇编有一个最简单的了解，方便之后debug。比较有意思的一点是在 <code>printf(&quot;x=%d y=%d&quot;, 3);</code> 中，y=的输出值其实是a2寄存器的之前值，是无意义的。</p>
+<h2 id="backtrace">Backtrace</h2>
+<p>实现一个 kernel 中使用的函数，打印函数栈。利用函数的 stack frame 中存储的返回地址，和存储的上一函数的 stack frame 的地址，递归实现。所有的 stack frame 在同一页表中，所以我们根据 stack frame 地址的 PGROUNDDOWN 是否相等来判断两个 stack frame 是否在同一页表中，以此决定递归边界。</p>
+<p>在 kernel/riscv.h 中，添加可以读出当前 stack frame 地址的函数 <code>r_fp()</code>。</p>
+<pre><code class="language-C">// get s0
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile(&quot;mv %0, s0&quot; : &quot;=r&quot; (x) );
+  return x;
+}
+</code></pre>
+<p>在 kernel/printf.c 中，实现 <code>backtrace()</code> 函数。[-1] 位置是函数要返回的地址，[-2] 位置是上一 stack frame 的地址。</p>
+<pre><code class="language-C">void
+backtrace()
+{
+  uint64* current = (uint64*) r_fp();
+  while (1) {
+    printf(&quot;%p\n&quot;, current[-1]);
+    if (PGROUNDDOWN((uint64) current) != PGROUNDDOWN(current[-2])) {
+      break;
+    }
+    current = (uint64*) current[-2];
+  }
+}
+</code></pre>
+<p>在 kernel/defs.h 中，添加函数声明。</p>
+<pre><code class="language-C">// printf.c
+...
+void            backtrace();
+</code></pre>
+<p>在 kernel/sysproc.c 中，调用函数使被测试。</p>
+<pre><code class="language-C">uint64
+sys_sleep(void)
+{
+  backtrace();
+  ...
+}
+</code></pre>
+<h2 id="alarm">Alarm</h2>
+<p>实现一对系统调用，使进程在一定的 CPU 时间间隔后，调用指定的函数，并重复这一过程。系统调用输入的时间间隔为 0 时，使该过程结束。考察对学习内容的理解。</p>
+<h3 id="test0">test0</h3>
+<p>先实现第一步，让进程在指定的 CPU 时间间隔后调用指定函数。在对应的 timer 中断发生时，使返回地址 sepc 变为要调用的函数的地址即可。</p>
+<p>在 Makefile 中，编译测试用的 user/alarmtest.c。</p>
+<pre><code class="language-Makefile">ifeq ($(LAB),traps)
+UPROGS += \
+        ...
+        $U/_alarmtest
+endif
+</code></pre>
+<p>在 user/user.h 中，添加对系统调用 <code>sigalarm()</code> 和 <code>sigreturn()</code>的声明。</p>
+<pre><code class="language-c">// system calls
+...
+int sigalarm(int ticks, void (*handler)());
+int sigreturn(void);
+</code></pre>
+<p>在 user/usys.pl 中，添加系统调用。</p>
+<pre><code class="language-perl">...
+entry(&quot;sigalarm&quot;);
+entry(&quot;sigreturn&quot;);
+</code></pre>
+<p>类似 lab02，在 kernel/syscall.c 中，添加对系统调用的声明。</p>
+<pre><code class="language-c">extern uint64 sys_sigalarm(void);
+extern uint64 sys_sigreturn(void);
+
+static uint64 (*syscalls[])(void) = {
+...
+[SYS_sigalarm]  sys_sigalarm,
+[SYS_sigreturn] sys_sigreturn,
+};
+</code></pre>
+<p>同样在 kernel/syscall.h 中修改。</p>
+<pre><code class="language-c">#define SYS_sigalarm  22
+#define SYS_sigreturn 23
+</code></pre>
+<p>在 kernel/proc.h 中，添加三个成员，记录 CPU时间间隔，调用函数地址，以及距离调用函数的剩余 CPU 时间。</p>
+<pre><code class="language-c">struct proc {
+  ...
+  int interval;                // alarm interval
+  void (*handler)();           // alarm handler function
+  int ticks;                   // left ticks to call handler function
+};
+</code></pre>
+<p>在 kernel/proc.c 中，在函数 <code>allocproc()</code> 中，添加对成员的初始化。</p>
+<pre><code class="language-c">static struct proc*
+allocproc(void)
+{
+  ...
+  p-&gt;interval = 0;
+  p-&gt;handler = 0;
+  p-&gt;ticks = 0;
+
+  return p;
+}
+</code></pre>
+<p>在 kernel/sysproc.c 中，实现函数 <code>sigalarm()</code>，将输入赋值给成员。函数 <code>sigreturn()</code> 暂时为直接返回 0。</p>
+<pre><code class="language-c">uint64
+sys_sigalarm(void)
+{
+  struct proc* p = myproc();
+
+  int n;
+  uint64 fn;
+  if (argint(0, &amp;n) &lt; 0)
+    return -1;
+  if (argaddr(1, &amp;fn) &lt; 0)
+    return -1;
+
+  p-&gt;interval = n;
+  p-&gt;ticks = n;
+  p-&gt;handler = (void (*)())fn;
+
+  return 0;
+}
+</code></pre>
+<p>在 kernel/trap.c 的 <code>usertrap()</code> 函数中，处理 timer 中断。</p>
+<pre><code class="language-c">void
+usertrap(void)
+{
+  ...
+  if(r_scause() == 8){
+      ...
+  } else if((which_dev = devintr()) != 0) {
+    if (which_dev == 2 &amp;&amp; p-&gt;interval != 0) {
+      p-&gt;ticks -= 1;
+      if (p-&gt;ticks == 0) {
+        p-&gt;trapframe-&gt;epc = (uint64)p-&gt;handler;
+      }
+    }
+  } else ...
+  ...
+}
+</code></pre>
+<h3 id="test1test2">test1/test2</h3>
+<p>在上一步的基础上，实现调用函数结束后返回被中断的位置。做法是在中断时记录 trapframe 记录的 reg 环境，而在调用函数结束时调用 <code>sigreturn()</code> 重新加载这些 reg 环境。</p>
+<p>在 kernel/proc.h 中，添加两个成员，记录 reg 环境和是否在调用函数的过程中，因为调用函数过程中我们是不将 CPU 时间作为时间间隔内的，此时的 timer 中断便忽略。</p>
+<pre><code class="language-c">struct proc {
+  ...
+  int interval;                // alarm interval
+  void (*handler)();           // alarm handler function
+  int ticks;                   // left ticks to call handler function
+  struct trapframe trapframeBackup;
+  int inHandler;
+};
+</code></pre>
+<p>在 kernel/proc.c 中，初始化成员变量。</p>
+<pre><code class="language-c">static struct proc*
+allocproc(void)
+{
+  ...
+  p-&gt;interval = 0;
+  p-&gt;handler = 0;
+  p-&gt;ticks = 0;
+  p-&gt;inHandler = 0;
+}
+</code></pre>
+<p>在 kernel/trap.c 中，调用函数前保存 reg 环境，并标记当前在调用函数中。</p>
+<pre><code class="language-c">void
+usertrap(void)
+{
+  ...
+  if(r_scause() == 8){
+      ...
+  } else if((which_dev = devintr()) != 0) {
+    if (which_dev == 2 &amp;&amp; p-&gt;interval != 0 &amp;&amp; p-&gt;inHandler == 0) {
+      p-&gt;ticks -= 1;
+     if (p-&gt;ticks == 0) {
+        p-&gt;trapframeBackup = *p-&gt;trapframe;
+        p-&gt;trapframe-&gt;epc = (uint64)p-&gt;handler;
+        p-&gt;inHandler = 1;
+      }
+    }
+  } else ...
+  ...
+}
+</code></pre>
+<p>在 kernel/sysproc.c 中，系统调用 <code>sigreturn()</code> 中，恢复 reg 环境，将标记取消，并重新设置剩余 CPU 时间。</p>
+<pre><code class="language-c">uint64
+sys_sigreturn(void)
+{
+  struct proc* p = myproc();
+  *p-&gt;trapframe = p-&gt;trapframeBackup;
+  p-&gt;inHandler = 0;
+  p-&gt;ticks = p-&gt;interval;
+  return 0;
+}
+</code></pre>
+<p>本次实验代码并不复杂，关键是对机制的理解。最后一个任务中，我感觉不是所有的 reg 都需要保存，应按 caller/callee 区分，但保险起见还是全部存储，之后会尝试搞懂这一问题。</p>
+
+        </div>
+
+        
+          <a class="animated fadeInUp p-2 items-center text-sm text-gray-700 border hover:bg-gray-300 leading-none rounded-full flex lg:inline-flex m-4 " href="https://DWAE86.github.io/tag/fI5sQV32H/">
+            <span class="flex-auto">mit6.s081</span>
+          </a>
+        
+
+
+        <div class="flex justify-between py-8">
+          
+            <div class="prev-post">
+              <a href="https://DWAE86.github.io/post/mit6s081-lab05-lazy-allocation-bi-ji/">
+                <h3 class="post-title">
+                  <i class="ri-arrow-left-line"></i>
+                  mit6.s081 Lab05 Lazy allocation 笔记
+                </h3>
+              </a>
+            </div>
+          
+
+          
+            <div class="next-post">
+              <a href="https://DWAE86.github.io/post/mit6s081-lab-03-page-tables-bi-ji/">
+                <h3 class="post-title">
+                  mit6.s081 Lab03 Page Tables 笔记
+                  <i class="ri-arrow-right-line"></i>
+                </h3>
+              </a>
+            </div>
+          
+        </div>
+
+        
+
+      </div>
+    </div>
+
+    <script src="https://DWAE86.github.io/media/prism.js"></script>  
+<script>
+
+Prism.highlightAll()
+let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+// This should probably be throttled.
+// Especially because it triggers during smooth scrolling.
+// https://lodash.com/docs/4.17.10#throttle
+// You could do like...
+// window.addEventListener("scroll", () => {
+//    _.throttle(doThatStuff, 100);
+// });
+// Only not doing it here to keep this Pen dependency-free.
+
+window.addEventListener("scroll", event => {
+  let fromTop = window.scrollY;
+
+  mainNavLinks.forEach((link, index) => {
+    let section = document.getElementById(decodeURI(link.hash).substring(1));
+    let nextSection = null
+    if (mainNavLinks[index + 1]) {
+      nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+    }
+    if (section.offsetTop <= fromTop) {
+      if (nextSection) {
+        if (nextSection.offsetTop > fromTop) {
+          link.classList.add("current");
+        } else {
+          link.classList.remove("current");    
+        }
+      } else {
+        link.classList.add("current");
+      }
+    } else {
+      link.classList.remove("current");
+    }
+  });
+});
+
+
+document.addEventListener("DOMContentLoaded", function() {
+  var lazyImages = [].slice.call(document.querySelectorAll(".post-feature-image.lazy"));
+
+  if ("IntersectionObserver" in window) {
+    let lazyImageObserver = new IntersectionObserver(function(entries, observer) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          let lazyImage = entry.target
+          lazyImage.style.backgroundImage = `url(${lazyImage.dataset.bg})`
+          lazyImage.classList.remove("lazy")
+          lazyImageObserver.unobserve(lazyImage)
+        }
+      });
+    });
+
+    lazyImages.forEach(function(lazyImage) {
+      lazyImageObserver.observe(lazyImage)
+    })
+  } else {
+    // Possibly fall back to a more compatible method here
+  }
+});
+
+const menuContainer = document.querySelector('.menu-container')
+const menus = document.querySelectorAll('.menu-container .menu')
+const mask = document.querySelector('.mask')
+const contentWrapper = document.querySelector('.content-wrapper')
+const latestArticle = document.querySelector('.latest-article')
+const readMore = document.querySelector('.read-more')
+const indexPage = document.querySelector('.index-page')
+
+const isHome = location.pathname === '/'
+if (latestArticle) {
+  latestArticle.style.display = isHome ? 'block' : 'none'
+  readMore.style.display = isHome ? 'block' : 'none'
+  indexPage.style.display = isHome ? 'none' : 'block'
+}
+
+const openMenu = () => {
+  menuContainer.classList.add('open')
+  menus.forEach(menu => {
+    menu.classList.add('animated', 'fadeInLeft')
+  })
+  mask.classList.add('open')
+  contentWrapper.classList.add('is-second')
+}
+
+const closeMenu = () => {
+  menuContainer.classList.remove('open')
+  menus.forEach(menu => {
+    menu.classList.remove('animated', 'fadeInLeft')
+  })
+  mask.classList.remove('open')
+  contentWrapper.classList.remove('is-second')
+}
+</script>
+  
+  </body>
+</html>
